@@ -278,7 +278,7 @@ struct DashboardView: View {
                 )
                 sessionStore.addSession(session)
                 
-                let num = session.sessionNumber > 0 ? session.sessionNumber : sessionStore.sessions.first?.sessionNumber ?? 0
+                let num = sessionStore.displayNumber(for: session) ?? 0
                 let summary = buildSummary(parsed, sessionNumber: num)
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     chatMessages.append(ChatMessage(role: .assistant, text: summary))

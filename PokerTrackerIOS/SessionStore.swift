@@ -8,8 +8,12 @@ import SwiftUI
 
 class SessionStore: ObservableObject {
     @Published var sessions: [PokerSession] = [] {
-        didSet { saveSessions() }
+        didSet {
+            saveSessions()
+            dataVersion += 1
+        }
     }
+    @Published private(set) var dataVersion: Int = 0
     @Published var filterGameType: GameType?
     @Published var filterDateFrom: Date?
     @Published var filterDateTo: Date?
@@ -19,7 +23,12 @@ class SessionStore: ObservableObject {
     
     init() {
         loadSessions()
-        assignMissingSessionNumbers()
+        // Default date range: last 12 months (avoids charts stretching far into the past)
+        if filterDateFrom == nil && filterDateTo == nil {
+            let calendar = Calendar.current
+            filterDateFrom = calendar.date(byAdding: .month, value: -12, to: Date())
+            filterDateTo = Date()
+        }
     }
     
     // MARK: - Filtered Sessions
@@ -129,7 +138,65 @@ class SessionStore: ObservableObject {
             .map { (formatter.string(from: $0.0), $0.1) }
     }
     
+    /// Monthly profit with Date for chart domain (month start dates)
+    var monthlyProfitWithDates: [(Date, Double)] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredSessions) { session -> Date in
+            calendar.date(from: calendar.dateComponents([.year, .month], from: session.date)) ?? session.date
+        }
+        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.amount }) }
+            .sorted { $0.0 < $1.0 }
+    }
+    
     var lastSession: PokerSession? { sessions.first }
+    
+    /// Date range for charts: earliest session date through today
+    var chartDateRange: (start: Date, end: Date)? {
+        guard !filteredSessions.isEmpty else { return nil }
+        let calendar = Calendar.current
+        let first = filteredSessions.min(by: { $0.date < $1.date })!.date
+        let last = filteredSessions.max(by: { $0.date < $1.date })!.date
+        let today = calendar.startOfDay(for: Date())
+        let end = last > today ? last : today
+        let start = calendar.startOfDay(for: first)
+        return (start, end)
+    }
+    
+    /// Domain for monthly chart: only months with data, with padding
+    var monthlyChartDomain: (start: Date, end: Date)? {
+        let months = monthlyProfitWithDates
+        guard let first = months.first?.0, let last = months.last?.0 else { return nil }
+        let calendar = Calendar.current
+        let paddingStart = calendar.date(byAdding: .month, value: -1, to: first) ?? first
+        let paddingEnd = calendar.date(byAdding: .month, value: 1, to: last) ?? last
+        return (paddingStart, paddingEnd)
+    }
+    
+    /// Domain for cumulative profit: earliest session through today
+    var cumulativeProfitDomain: (start: Date, end: Date)? {
+        guard !filteredSessions.isEmpty else { return nil }
+        let calendar = Calendar.current
+        let first = filteredSessions.min(by: { $0.date < $1.date })!.date
+        let last = filteredSessions.max(by: { $0.date < $1.date })!.date
+        let today = calendar.startOfDay(for: Date())
+        let end = last > today ? last : today
+        return (calendar.startOfDay(for: first), end)
+    }
+    
+    /// Earliest session date in filtered set
+    var firstSessionDate: Date? {
+        filteredSessions.min(by: { $0.date < $1.date })?.date
+    }
+    
+    /// Date range of all sessions (unfiltered) for preset bounds
+    var allSessionsDateRange: (start: Date, end: Date)? {
+        guard !sessions.isEmpty else { return nil }
+        let first = sessions.min(by: { $0.date < $1.date })!.date
+        let last = sessions.max(by: { $0.date < $1.date })!.date
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return (first, last > today ? last : today)
+    }
     
     var thisMonthProfit: Double {
         let calendar = Calendar.current
@@ -139,39 +206,36 @@ class SessionStore: ObservableObject {
             .reduce(0) { $0 + $1.amount }
     }
     
-    // MARK: - Session Numbering
-    
-    /// The next session number to assign
-    var nextSessionNumber: Int {
-        let maxExisting = sessions.map(\.sessionNumber).max() ?? 0
-        return maxExisting + 1
+    /// Sessions on a given calendar day (uses all sessions, not filtered)
+    func sessions(on date: Date) -> [PokerSession] {
+        sessions.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
+            .sorted { $0.date < $1.date }
     }
     
-    /// Look up a session by its display number (#1, #2, etc.)
+    // MARK: - Session Numbering (dynamic: earliest = #1, latest = #N)
+    
+    /// Sessions sorted earliest to latest (used for display numbers; uses all sessions for stable numbering)
+    var sessionsByDateAscending: [PokerSession] {
+        sessions.sorted { $0.date < $1.date }
+    }
+    
+    /// Display number for a session (1-based, earliest = #1)
+    func displayNumber(for session: PokerSession) -> Int? {
+        let sorted = sessionsByDateAscending
+        guard let idx = sorted.firstIndex(where: { $0.id == session.id }) else { return nil }
+        return idx + 1
+    }
+    
+    /// Look up a session by its display number (#1 = earliest, #2 = next, etc.)
     func session(byNumber num: Int) -> PokerSession? {
-        sessions.first { $0.sessionNumber == num }
-    }
-    
-    /// Assigns sequential numbers to any sessions that don't have one yet (migration)
-    private func assignMissingSessionNumbers() {
-        let sorted = sessions.sorted { $0.date < $1.date }
-        var maxNum = sorted.filter { $0.sessionNumber > 0 }.map(\.sessionNumber).max() ?? 0
-        for session in sorted where session.sessionNumber == 0 {
-            maxNum += 1
-            if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
-                sessions[idx].sessionNumber = maxNum
-            }
-        }
-        // didSet on sessions triggers saveSessions automatically
+        let sorted = sessionsByDateAscending
+        guard num >= 1, num <= sorted.count else { return nil }
+        return sorted[num - 1]
     }
     
     // MARK: - CRUD
     func addSession(_ session: PokerSession) {
-        var s = session
-        if s.sessionNumber == 0 {
-            s.sessionNumber = nextSessionNumber
-        }
-        sessions.insert(s, at: 0)
+        sessions.insert(session, at: 0)
     }
     
     func updateSession(_ session: PokerSession) {

@@ -9,6 +9,7 @@ import Charts
 struct AnalyticsView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
+    @State private var showingDateRange = false
     
     private var currency: String { settingsStore.settings.currency }
     
@@ -16,6 +17,9 @@ struct AnalyticsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    if sessionStore.filterDateFrom != nil || sessionStore.filterDateTo != nil {
+                        dateRangeBanner
+                    }
                     summaryCards
                     
                     if sessionStore.profitOverTime.count >= 2 {
@@ -37,9 +41,77 @@ struct AnalyticsView: View {
                     detailStats
                 }
                 .padding()
+                .id(sessionStore.dataVersion)
             }
             .navigationTitle("Stats")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingDateRange = true
+                    } label: {
+                        Image(systemName: "calendar")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingDateRange) {
+                StatsDateRangeSheet()
+                    .environmentObject(sessionStore)
+            }
         }
+    }
+    
+    private var dateRangeBanner: some View {
+        HStack {
+            Image(systemName: "calendar.badge.clock")
+                .foregroundStyle(AppTheme.accent)
+            Text(dateRangeLabel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Clear") {
+                sessionStore.filterDateFrom = nil
+                sessionStore.filterDateTo = nil
+            }
+            .font(.subheadline)
+        }
+        .padding(12)
+        .background(AppTheme.cardBackground)
+        .cornerRadius(10)
+    }
+    
+    private var chartDomain: ClosedRange<Date> {
+        guard let range = sessionStore.chartDateRange else {
+            let d = Date()
+            return d...d
+        }
+        return range.start...range.end
+    }
+    
+    /// Domain for monthly chart: months with data only
+    private var monthlyChartDomain: ClosedRange<Date>? {
+        guard let range = sessionStore.monthlyChartDomain else { return nil }
+        return range.start...range.end
+    }
+    
+    /// Tight domain for cumulative profit (data range only)
+    private var cumulativeProfitDomain: ClosedRange<Date> {
+        guard let range = sessionStore.cumulativeProfitDomain else { return chartDomain }
+        return range.start...range.end
+    }
+    
+    private var dateRangeLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        if let from = sessionStore.filterDateFrom, let to = sessionStore.filterDateTo {
+            return "\(formatter.string(from: from)) – \(formatter.string(from: to))"
+        }
+        if let from = sessionStore.filterDateFrom {
+            return "From \(formatter.string(from: from))"
+        }
+        if let to = sessionStore.filterDateTo {
+            return "Until \(formatter.string(from: to))"
+        }
+        return ""
     }
     
     // MARK: - Summary Cards
@@ -72,41 +144,40 @@ struct AnalyticsView: View {
     // MARK: - Profit Over Time Line Chart
     
     private var profitLineChart: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let data = sessionStore.profitOverTime
+        let color: Color = sessionStore.totalProfit >= 0 ? .green : .red
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Cumulative Profit")
                 .font(.headline)
             
             Chart {
-                ForEach(Array(sessionStore.profitOverTime.enumerated()), id: \.offset) { _, point in
+                ForEach(Array(data.enumerated()), id: \.offset) { _, point in
                     LineMark(
-                        x: .value("Date", point.0),
+                        x: .value("Date", point.0, unit: .day),
                         y: .value("Profit", point.1)
                     )
-                    .foregroundStyle(sessionStore.totalProfit >= 0 ? Color.green : Color.red)
-                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(color)
+                    .interpolationMethod(.stepEnd)
                     
                     AreaMark(
-                        x: .value("Date", point.0),
+                        x: .value("Date", point.0, unit: .day),
                         y: .value("Profit", point.1)
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [
-                                (sessionStore.totalProfit >= 0 ? Color.green : Color.red).opacity(0.3),
-                                .clear
-                            ],
+                            colors: [color.opacity(0.3), .clear],
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.stepEnd)
                 }
-                
                 RuleMark(y: .value("Zero", 0))
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
                     .lineStyle(StrokeStyle(dash: [5, 5]))
             }
             .frame(height: 200)
+            .chartXScale(domain: cumulativeProfitDomain)
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
                     AxisGridLine()
@@ -119,8 +190,8 @@ struct AnalyticsView: View {
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) { value in
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                AxisMarks(values: .automatic(desiredCount: 5)) { value in
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
                         .font(.caption2)
                 }
             }
@@ -185,16 +256,27 @@ struct AnalyticsView: View {
                 .font(.headline)
             
             Chart {
-                ForEach(Array(sessionStore.monthlyProfit.enumerated()), id: \.offset) { _, item in
+                ForEach(sessionStore.monthlyProfitWithDates, id: \.0) { monthDate, profit in
                     BarMark(
-                        x: .value("Month", item.0),
-                        y: .value("Profit", item.1)
+                        x: .value("Month", monthDate, unit: .month),
+                        y: .value("Profit", profit),
+                        width: .ratio(0.6)
                     )
-                    .foregroundStyle(item.1 >= 0 ? Color.green : Color.red)
+                    .foregroundStyle(profit >= 0 ? Color.green : Color.red)
                     .cornerRadius(4)
                 }
             }
-            .frame(height: 180)
+            .frame(height: 220)
+            .chartXScale(domain: monthlyChartDomain ?? chartDomain)
+            .chartPlotStyle { plotArea in
+                plotArea.padding(.horizontal, 8)
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
+                        .font(.caption2)
+                }
+            }
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
                     AxisGridLine()
@@ -204,12 +286,6 @@ struct AnalyticsView: View {
                                 .font(.caption2)
                         }
                     }
-                }
-            }
-            .chartXAxis {
-                AxisMarks { value in
-                    AxisValueLabel()
-                        .font(.caption2)
                 }
             }
         }
@@ -302,6 +378,89 @@ struct AnalyticsView: View {
             return String(format: "$%.0fk", value / 1000)
         }
         return String(format: "$%.0f", value)
+    }
+}
+
+// MARK: - Stats Date Range Sheet
+
+struct StatsDateRangeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var sessionStore: SessionStore
+    
+    @State private var useCustomRange = false
+    @State private var dateFrom = Date()
+    @State private var dateTo = Date()
+    
+    private var calendar: Calendar { .current }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        sessionStore.filterDateFrom = nil
+                        sessionStore.filterDateTo = nil
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Image(systemName: "calendar")
+                            Text("All (Earliest session – Today)")
+                        }
+                    }
+                    
+                    presetButton("Last 30 days") {
+                        let end = Date()
+                        let start = calendar.date(byAdding: .day, value: -30, to: end) ?? end
+                        apply(start: start, end: end)
+                    }
+                    presetButton("Last 90 days") {
+                        let end = Date()
+                        let start = calendar.date(byAdding: .day, value: -90, to: end) ?? end
+                        apply(start: start, end: end)
+                    }
+                    presetButton("This year") {
+                        let end = Date()
+                        let start = calendar.date(from: calendar.dateComponents([.year], from: end)) ?? end
+                        apply(start: start, end: end)
+                    }
+                } header: {
+                    Text("Presets")
+                }
+                
+                Section("Custom range") {
+                    DatePicker("From", selection: $dateFrom, displayedComponents: .date)
+                    DatePicker("To", selection: $dateTo, displayedComponents: .date)
+                    Button("Apply custom range") {
+                        if dateFrom <= dateTo {
+                            apply(start: dateFrom, end: dateTo)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Date range")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear {
+                if let range = sessionStore.allSessionsDateRange {
+                    dateFrom = sessionStore.filterDateFrom ?? range.start
+                    dateTo = sessionStore.filterDateTo ?? range.end
+                }
+            }
+        }
+    }
+    
+    private func presetButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+    }
+    
+    private func apply(start: Date, end: Date) {
+        sessionStore.filterDateFrom = start
+        sessionStore.filterDateTo = end
+        dismiss()
     }
 }
 

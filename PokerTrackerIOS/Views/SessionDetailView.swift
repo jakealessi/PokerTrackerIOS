@@ -63,7 +63,7 @@ struct SessionDetailView: View {
     
     private var amountCard: some View {
         VStack(spacing: 8) {
-            Text("Session #\(session.sessionNumber)")
+            Text("Session #\(sessionStore.displayNumber(for: session) ?? 0)")
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)

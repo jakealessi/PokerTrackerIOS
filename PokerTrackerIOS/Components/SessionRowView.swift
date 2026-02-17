@@ -7,12 +7,13 @@ import SwiftUI
 
 struct SessionRowView: View {
     let session: PokerSession
+    var displayNumber: Int?
     var currency: String = "USD"
     
     var body: some View {
         HStack {
-            // Session number badge
-            Text("#\(session.sessionNumber)")
+            // Session number badge (dynamic: earliest = #1)
+            Text("#\(displayNumber ?? 0)")
                 .font(.caption2)
                 .fontWeight(.bold)
                 .foregroundStyle(.white)

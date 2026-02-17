@@ -21,7 +21,7 @@ struct SessionsListView: View {
                     List {
                         ForEach(sessionStore.filteredSessions) { session in
                             NavigationLink { SessionDetailView(session: session) } label: {
-                                SessionRowView(session: session, currency: settingsStore.settings.currency)
+                                SessionRowView(session: session, displayNumber: sessionStore.displayNumber(for: session), currency: settingsStore.settings.currency)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {

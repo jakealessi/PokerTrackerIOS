@@ -16,12 +16,15 @@ struct MainTabView: View {
             DashboardView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(1)
-            SessionsListView()
+            CalendarView()
                 .tabItem { Label("Calendar", systemImage: "calendar") }
                 .tag(2)
+            SessionsListView()
+                .tabItem { Label("Sessions", systemImage: "list.bullet") }
+                .tag(3)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(3)
+                .tag(4)
         }
         .tint(AppTheme.accent)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
