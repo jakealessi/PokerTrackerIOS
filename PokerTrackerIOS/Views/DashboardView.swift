@@ -9,10 +9,11 @@ struct DashboardView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
     @State private var showingAddSession = false
-    @State private var aiPrompt = ""
+    @State private var chatMessages: [ChatMessage] = []
+    @State private var inputText = ""
     @State private var isAILoading = false
     @State private var aiError: String?
-    @State private var aiWarning: String?
+    @FocusState private var inputFocused: Bool
     
     private var bankroll: Double {
         settingsStore.settings.startingBankroll + sessionStore.totalProfit
@@ -21,88 +22,16 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top info
-                VStack(spacing: 16) {
-                    // Bankroll
-                    VStack(spacing: 2) {
-                        Text("Bankroll")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                        Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(bankroll >= 0 ? .green : .red)
-                        Text("P/L: \(PokerSession.formatCurrency(sessionStore.totalProfit, currency: settingsStore.settings.currency))")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                    }
-                    .padding(.top, 8)
-                    
-                    // Quick stats row
-                    HStack(spacing: 0) {
-                        statItem("\(sessionStore.totalSessions)", "Sessions")
-                        Divider().frame(height: 30)
-                        statItem(String(format: "%.0f%%", sessionStore.winRate), "Win Rate")
-                        Divider().frame(height: 30)
-                        statItem("\(sessionStore.winCount)/\(sessionStore.lossCount)", "W/L")
-                        if sessionStore.totalHoursPlayed > 0, let rate = sessionStore.hourlyRate {
-                            Divider().frame(height: 30)
-                            statItem(PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency), "$/hr")
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    .background(AppTheme.cardBackground)
-                    .cornerRadius(10)
-                }
-                .padding(.horizontal)
+                statsHeader
                 
-                Spacer()
+                Divider()
                 
-                // AI session logger at bottom
-                VStack(spacing: 10) {
-                    if let warning = aiWarning {
-                        Text(warning)
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                    if let error = aiError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                    
-                    HStack(spacing: 10) {
-                        TextField("Log a session...", text: $aiPrompt, axis: .vertical)
-                            .lineLimit(1...3)
-                            .textFieldStyle(.plain)
-                            .padding(12)
-                            .background(AppTheme.cardBackground)
-                            .cornerRadius(10)
-                        
-                        Button {
-                            Task { await logWithAI() }
-                        } label: {
-                            Group {
-                                if isAILoading {
-                                    ProgressView()
-                                        .tint(.white)
-                                } else {
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .font(.title2)
-                                }
-                            }
-                            .frame(width: 44, height: 44)
-                            .background(aiPrompt.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading ? Color.gray : AppTheme.accent)
-                            .foregroundStyle(.white)
-                            .cornerRadius(22)
-                        }
-                        .disabled(aiPrompt.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+                chatArea
+                
+                inputBar
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Poker Tracker")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -114,6 +43,39 @@ struct DashboardView: View {
             }
             .sheet(isPresented: $showingAddSession) { AddSessionView() }
         }
+    }
+    
+    // MARK: - Stats Header
+    
+    private var statsHeader: some View {
+        VStack(spacing: 8) {
+            VStack(spacing: 2) {
+                Text("Bankroll")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(bankroll >= 0 ? .green : .red)
+            }
+            
+            HStack(spacing: 0) {
+                statItem("\(sessionStore.totalSessions)", "Sessions")
+                Divider().frame(height: 24)
+                statItem(String(format: "%.0f%%", sessionStore.winRate), "Win Rate")
+                Divider().frame(height: 24)
+                statItem("\(sessionStore.winCount)/\(sessionStore.lossCount)", "W/L")
+                if sessionStore.totalHoursPlayed > 0, let rate = sessionStore.hourlyRate {
+                    Divider().frame(height: 24)
+                    statItem(PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency), "$/hr")
+                }
+            }
+            .padding(.vertical, 8)
+            .background(AppTheme.cardBackground)
+            .cornerRadius(10)
+            .padding(.horizontal)
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 8)
     }
     
     private func statItem(_ value: String, _ label: String) -> some View {
@@ -128,42 +90,267 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity)
     }
     
-    private func logWithAI() async {
-        let prompt = aiPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
+    // MARK: - Chat Area
+    
+    private var chatArea: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                if chatMessages.isEmpty {
+                    emptyPrompt
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(chatMessages) { message in
+                            chatBubble(message)
+                                .id(message.id)
+                        }
+                        
+                        if isAILoading {
+                            HStack {
+                                TypingIndicator()
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                            .id("loading")
+                        }
+                    }
+                    .padding(.vertical, 12)
+                }
+            }
+            .onChange(of: chatMessages.count) { _, _ in
+                withAnimation {
+                    if let last = chatMessages.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: isAILoading) { _, loading in
+                if loading {
+                    withAnimation {
+                        proxy.scrollTo("loading", anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+    
+    private var emptyPrompt: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 40, weight: .thin))
+                .foregroundStyle(.tertiary)
+            Text("Log a session or update an existing one")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Try: \"Won $200 at 1/2 NLH\" or \"Update session #3 stakes to 2/5\"")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private func chatBubble(_ message: ChatMessage) -> some View {
+        HStack {
+            if message.role == .user { Spacer(minLength: 60) }
+            
+            Text(message.text)
+                .font(.body)
+                .foregroundStyle(message.role == .user ? .white : .primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(message.role == .user ? Color.blue : AppTheme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            
+            if message.role == .assistant { Spacer(minLength: 60) }
+        }
+        .padding(.horizontal)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+    
+    // MARK: - Input Bar
+    
+    private var inputBar: some View {
+        VStack(spacing: 0) {
+            if let error = aiError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
+            }
+            
+            Divider()
+            
+            HStack(spacing: 10) {
+                if !chatMessages.isEmpty {
+                    Button {
+                        withAnimation {
+                            chatMessages.removeAll()
+                            aiError = nil
+                        }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                TextField("Log a session...", text: $inputText, axis: .vertical)
+                    .lineLimit(1...4)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(AppTheme.cardBackground)
+                    .cornerRadius(20)
+                    .focused($inputFocused)
+                
+                Button {
+                    sendMessage()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(
+                            inputText.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading
+                            ? Color.gray : AppTheme.accent
+                        )
+                }
+                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+    
+    // MARK: - Send & AI Logic
+    
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
         
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            chatMessages.append(ChatMessage(role: .user, text: text))
+        }
+        inputText = ""
         aiError = nil
-        aiWarning = nil
+        
+        Task { await processWithAI() }
+    }
+    
+    private func processWithAI() async {
         isAILoading = true
         
+        let context = AISessionService.buildSessionContext(
+            from: sessionStore.sessions,
+            currency: settingsStore.settings.currency
+        )
+        
         do {
-            let result = try await AISessionService.shared.parseSession(
-                from: prompt,
+            let result = try await AISessionService.shared.converse(
+                messages: chatMessages,
                 geminiKey: settingsStore.settings.geminiAPIKey ?? APIKeysLoader.geminiKey,
-                openAIKey: settingsStore.settings.openAIAPIKey ?? APIKeysLoader.openAIKey
+                openAIKey: settingsStore.settings.openAIAPIKey ?? APIKeysLoader.openAIKey,
+                existingSessions: context
             )
-            let session = PokerSession(
-                amount: result.session.amount,
-                date: Date(),
-                notes: result.session.notes ?? "",
-                gameType: result.session.gameType,
-                variant: result.session.variant,
-                hoursPlayed: result.session.hoursPlayed,
-                stakes: result.session.stakes,
-                venue: result.session.venue
-            )
-            sessionStore.addSession(session)
-            if result.usedFallback {
-                aiWarning = result.fallbackReason
+            
+            switch result {
+            case .followUp(let question):
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    chatMessages.append(ChatMessage(role: .assistant, text: question))
+                }
+                
+            case .complete(let parsed):
+                let session = PokerSession(
+                    amount: parsed.amount,
+                    date: parsed.date ?? Date(),
+                    notes: parsed.notes ?? "",
+                    gameType: parsed.gameType,
+                    variant: parsed.variant,
+                    hoursPlayed: parsed.hoursPlayed,
+                    stakes: parsed.stakes,
+                    venue: parsed.venue,
+                    buyIn: parsed.buyIn,
+                    cashOut: parsed.cashOut,
+                    tournamentPosition: parsed.tournamentPosition,
+                    rebuys: parsed.rebuys,
+                    handNotes: parsed.handNotes
+                )
+                sessionStore.addSession(session)
+                
+                let num = session.sessionNumber > 0 ? session.sessionNumber : sessionStore.sessions.first?.sessionNumber ?? 0
+                let summary = buildSummary(parsed, sessionNumber: num)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    chatMessages.append(ChatMessage(role: .assistant, text: summary))
+                }
+                if settingsStore.settings.hapticFeedback { HapticManager.success() }
+                
+            case .update(let sessionNumber, let fields):
+                if var existing = sessionStore.session(byNumber: sessionNumber) {
+                    existing = AISessionService.applyUpdate(to: existing, fields: fields)
+                    sessionStore.updateSession(existing)
+                    
+                    let fieldNames = fields.keys.joined(separator: ", ")
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        chatMessages.append(ChatMessage(
+                            role: .assistant,
+                            text: "Updated session #\(sessionNumber) (\(fieldNames))."
+                        ))
+                    }
+                    if settingsStore.settings.hapticFeedback { HapticManager.success() }
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        chatMessages.append(ChatMessage(
+                            role: .assistant,
+                            text: "I couldn't find session #\(sessionNumber). Check the Sessions tab for valid session numbers."
+                        ))
+                    }
+                }
             }
-            if settingsStore.settings.hapticFeedback { HapticManager.success() }
-            aiPrompt = ""
         } catch {
             aiError = error.localizedDescription
             if settingsStore.settings.hapticFeedback { HapticManager.notification(.error) }
         }
         
         isAILoading = false
+    }
+    
+    private func buildSummary(_ p: ParsedSession, sessionNumber: Int) -> String {
+        var parts: [String] = []
+        parts.append("Session #\(sessionNumber) logged!")
+        let amtStr = PokerSession.formatCurrency(p.amount, currency: settingsStore.settings.currency)
+        parts.append(p.amount >= 0 ? "Won \(amtStr)" : "Lost \(amtStr)")
+        if let s = p.stakes { parts.append(s) }
+        parts.append(p.variant ?? p.gameType.rawValue)
+        if let v = p.venue { parts.append("at \(v)") }
+        if let h = p.hoursPlayed { parts.append("\(String(format: "%.1f", h))h") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Typing Indicator
+
+struct TypingIndicator: View {
+    @State private var phase = 0.0
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 7, height: 7)
+                    .offset(y: phase == Double(i) ? -4 : 0)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+                phase = 2
+            }
+        }
     }
 }
 

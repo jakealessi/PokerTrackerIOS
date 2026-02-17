@@ -17,7 +17,10 @@ class SessionStore: ObservableObject {
     
     private let saveKey = "poker_sessions"
     
-    init() { loadSessions() }
+    init() {
+        loadSessions()
+        assignMissingSessionNumbers()
+    }
     
     // MARK: - Filtered Sessions
     var filteredSessions: [PokerSession] {
@@ -136,9 +139,39 @@ class SessionStore: ObservableObject {
             .reduce(0) { $0 + $1.amount }
     }
     
+    // MARK: - Session Numbering
+    
+    /// The next session number to assign
+    var nextSessionNumber: Int {
+        let maxExisting = sessions.map(\.sessionNumber).max() ?? 0
+        return maxExisting + 1
+    }
+    
+    /// Look up a session by its display number (#1, #2, etc.)
+    func session(byNumber num: Int) -> PokerSession? {
+        sessions.first { $0.sessionNumber == num }
+    }
+    
+    /// Assigns sequential numbers to any sessions that don't have one yet (migration)
+    private func assignMissingSessionNumbers() {
+        let sorted = sessions.sorted { $0.date < $1.date }
+        var maxNum = sorted.filter { $0.sessionNumber > 0 }.map(\.sessionNumber).max() ?? 0
+        for session in sorted where session.sessionNumber == 0 {
+            maxNum += 1
+            if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
+                sessions[idx].sessionNumber = maxNum
+            }
+        }
+        // didSet on sessions triggers saveSessions automatically
+    }
+    
     // MARK: - CRUD
     func addSession(_ session: PokerSession) {
-        sessions.insert(session, at: 0)
+        var s = session
+        if s.sessionNumber == 0 {
+            s.sessionNumber = nextSessionNumber
+        }
+        sessions.insert(s, at: 0)
     }
     
     func updateSession(_ session: PokerSession) {

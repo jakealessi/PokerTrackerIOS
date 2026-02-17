@@ -11,8 +11,14 @@ struct SessionRowView: View {
     
     var body: some View {
         HStack {
-            Image(systemName: session.isWin ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                .foregroundStyle(session.isWin ? .green : .red)
+            // Session number badge
+            Text("#\(session.sessionNumber)")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(session.isWin ? Color.green : Color.red)
+                .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(PokerSession.formatCurrency(session.amount, currency: currency))

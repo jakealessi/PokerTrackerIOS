@@ -63,6 +63,10 @@ struct SessionDetailView: View {
     
     private var amountCard: some View {
         VStack(spacing: 8) {
+            Text("Session #\(session.sessionNumber)")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
             Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
                 .font(.system(size: 36, weight: .bold))
                 .foregroundStyle(session.isWin ? .green : .red)

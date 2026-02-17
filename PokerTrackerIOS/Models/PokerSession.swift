@@ -7,6 +7,7 @@ import Foundation
 
 struct PokerSession: Identifiable, Codable, Equatable {
     let id: UUID
+    var sessionNumber: Int
     var amount: Double
     var date: Date
     var notes: String
@@ -23,6 +24,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
     
     init(
         id: UUID = UUID(),
+        sessionNumber: Int = 0,
         amount: Double,
         date: Date = Date(),
         notes: String = "",
@@ -38,6 +40,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         handNotes: String? = nil
     ) {
         self.id = id
+        self.sessionNumber = sessionNumber
         self.amount = amount
         self.date = date
         self.notes = notes
@@ -51,6 +54,26 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.tournamentPosition = tournamentPosition
         self.rebuys = rebuys
         self.handNotes = handNotes
+    }
+    
+    // Migration: if sessionNumber is missing from old data, default to 0
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        sessionNumber = try c.decodeIfPresent(Int.self, forKey: .sessionNumber) ?? 0
+        amount = try c.decode(Double.self, forKey: .amount)
+        date = try c.decode(Date.self, forKey: .date)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        gameType = try c.decodeIfPresent(GameType.self, forKey: .gameType) ?? .cash
+        variant = try c.decodeIfPresent(String.self, forKey: .variant)
+        hoursPlayed = try c.decodeIfPresent(Double.self, forKey: .hoursPlayed)
+        stakes = try c.decodeIfPresent(String.self, forKey: .stakes)
+        venue = try c.decodeIfPresent(String.self, forKey: .venue)
+        buyIn = try c.decodeIfPresent(Double.self, forKey: .buyIn)
+        cashOut = try c.decodeIfPresent(Double.self, forKey: .cashOut)
+        tournamentPosition = try c.decodeIfPresent(Int.self, forKey: .tournamentPosition)
+        rebuys = try c.decodeIfPresent(Int.self, forKey: .rebuys)
+        handNotes = try c.decodeIfPresent(String.self, forKey: .handNotes)
     }
     
     var isWin: Bool { amount > 0 }

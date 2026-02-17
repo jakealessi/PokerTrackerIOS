@@ -2,14 +2,14 @@
 //  AppTheme.swift
 //  PokerTrackerIOS
 //
-//  White/blue color scheme
+//  Adapts to light/dark mode
 //
 
 import SwiftUI
 
 enum AppTheme {
-    static let background = Color.white
+    static let background = Color(UIColor.systemGroupedBackground)
     static let accent = Color.blue
-    static let secondaryText = Color.gray
-    static let cardBackground = Color(white: 0.96)
+    static let secondaryText = Color.secondary
+    static let cardBackground = Color(UIColor.secondarySystemGroupedBackground)
 }

@@ -28,7 +28,13 @@ enum SessionParserService {
             venue: venue,
             gameType: gameType,
             variant: variant,
-            notes: nil
+            notes: nil,
+            buyIn: nil,
+            cashOut: nil,
+            date: nil,
+            tournamentPosition: nil,
+            rebuys: nil,
+            handNotes: nil
         )
     }
     
