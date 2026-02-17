@@ -39,55 +39,51 @@ struct CalendarView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 20) {
-                            ForEach(monthRange, id: \.self) { monthStart in
-                                monthBlock(for: monthStart)
-                                    .id(monthStart)
-                            }
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+                        ForEach(monthRange, id: \.self) { monthStart in
+                            monthBlock(for: monthStart)
+                                .id(monthStart)
                         }
-                        .scrollTargetLayout()
-                        .padding(.vertical, 12)
-                        .padding(.horizontal)
                     }
-                    .scrollPosition(id: $scrollPosition, anchor: .center)
-                    .task {
-                        // Avoid first-open "slightly off-center" glitches by centering only after
-                        // the initial layout pass has happened (and doing it without animation).
-                        guard !didInitialCenter else { return }
-                        didInitialCenter = true
-                        
-                        guard let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return }
-                        scrollPosition = month
-                        
-                        // One extra tick helps when content height settles (nav bar / safe area).
-                        await Task.yield()
-                        scrollPosition = month
-                    }
-                    .onChange(of: selectedDate) { _, newDate in
-                        if let date = newDate,
-                           let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) {
-                            // Use scrollTo for direct centering - this centers the month without scrolling through intermediate months
-                            // scrollTo jumps directly to the target, the animation just makes the movement smooth
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo(monthStart, anchor: .center)
-                            }
-                        }
+                    .scrollTargetLayout()
+                    .padding(.vertical, 12)
+                    .padding(.horizontal)
+                }
+                .scrollPosition(id: $scrollPosition, anchor: .center)
+                .task {
+                    // Avoid first-open "slightly off-center" glitches by centering only after
+                    // the initial layout pass has happened (and doing it without animation).
+                    guard !didInitialCenter else { return }
+                    didInitialCenter = true
+                    
+                    guard let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return }
+                    scrollPosition = month
+                    
+                    // One extra tick helps when content height settles (nav bar / safe area).
+                    await Task.yield()
+                    scrollPosition = month
+                }
+                .onChange(of: selectedDate) { _, newDate in
+                    guard let date = newDate,
+                          let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) else { return }
+                    // Update scrollPosition so it stays in sync; scroll without animation so we don't
+                    // overshoot or fight the day panel animating in (which changes layout and "center").
+                    var t = Transaction()
+                    t.animation = nil
+                    withTransaction(t) {
+                        scrollPosition = monthStart
                     }
                 }
                 
                 if let date = selectedDate {
                     daySessionsSection(for: date)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .move(edge: .bottom).combined(with: .opacity)
-                        ))
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
+            .animation(AppTheme.smoothSpring, value: selectedDate)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
-            .animation(AppTheme.smoothSpring, value: selectedDate)
             .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -99,8 +95,13 @@ struct CalendarView: View {
                     HStack(spacing: 12) {
                         Button("Today") {
                             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))
-                            withAnimation(AppTheme.smoothSpring) {
+                            var t = Transaction()
+                            t.animation = nil
+                            withTransaction(t) {
                                 scrollPosition = month
+                            }
+                            withAnimation(AppTheme.smoothSpring) {
+                                selectedDate = Date()
                             }
                         }
                         .font(.subheadline.weight(.medium))
@@ -213,8 +214,10 @@ struct CalendarView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .transition(.opacity.combined(with: .move(edge: .leading)))
                         }
                     }
+                    .animation(AppTheme.smoothSpring, value: sessionsOnDay.map(\.id))
                 }
                 .frame(height: contentHeight)
             }
@@ -223,7 +226,6 @@ struct CalendarView: View {
         .background(AppTheme.cardBackground)
         .cornerRadius(12)
         .padding()
-        .animation(AppTheme.smoothSpring, value: sessionsOnDay.count)
     }
     
     private func monthYearString(from date: Date) -> String {
@@ -303,10 +305,9 @@ private struct DayCell: View {
             .frame(maxWidth: .infinity)
             .background(cellBackground)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .animation(AppTheme.smoothSpring, value: isSelected)
-            .animation(AppTheme.smoothSpring, value: dailyProfit)
         }
         .buttonStyle(.plain)
+        .animation(AppTheme.smoothSpring, value: isSelected)
     }
     
     private func formatDailyAmount(_ amount: Double) -> String {
