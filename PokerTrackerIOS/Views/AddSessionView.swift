@@ -26,6 +26,10 @@ struct AddSessionView: View {
     @State private var tournamentPosition: String = ""
     @State private var rebuys: String = ""
     @State private var handNotes: String = ""
+    @State private var startTime: Date? = nil
+    @State private var endTime: Date? = nil
+    
+    private let calendar = Calendar.current
     
     private var parsedAmount: Double {
         let cleaned = amount.replacingOccurrences(of: "$", with: "")
@@ -81,28 +85,38 @@ struct AddSessionView: View {
                 
                 Section("Details") {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
+                    .onChange(of: date) { _, newDate in
+                        if let start = startTime {
+                            let comps = calendar.dateComponents([.hour, .minute], from: start)
+                            startTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                        }
+                        if let end = endTime {
+                            let comps = calendar.dateComponents([.hour, .minute], from: end)
+                            endTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                        }
+                    }
+                    
+                    Toggle("Add start time", isOn: Binding(
+                        get: { startTime != nil },
+                        set: { if $0 { startTime = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: date) ?? date } else { startTime = nil } }
+                    ))
+                    if startTime != nil {
+                        DatePicker("Start", selection: timeBinding(for: date, time: $startTime), displayedComponents: .hourAndMinute)
+                    }
+                    
+                    Toggle("Add end time", isOn: Binding(
+                        get: { endTime != nil },
+                        set: { if $0 { endTime = calendar.date(bySettingHour: 23, minute: 30, second: 0, of: date) ?? date } else { endTime = nil } }
+                    ))
+                    if endTime != nil {
+                        DatePicker("End", selection: timeBinding(for: date, time: $endTime), displayedComponents: .hourAndMinute)
+                    }
                     
                     TextField("Hours Played", text: $hoursPlayed)
                         .keyboardType(.decimalPad)
                     
-                    HStack {
-                        Text("Stakes")
-                        TextField("e.g. $1/$2", text: $stakes)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    HStack(spacing: 8) {
-                        ForEach([StakesPreset.low1, .low2, .mid, .high], id: \.self) { preset in
-                            Button(preset.rawValue) {
-                                stakes = preset.rawValue
-                                HapticManager.lightTap()
-                            }
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(stakes == preset.rawValue ? AppTheme.accent.opacity(0.3) : AppTheme.cardBackground)
-                            .foregroundStyle(stakes == preset.rawValue ? .white : .primary)
-                            .cornerRadius(8)
-                        }
+                    if gameType == .cash {
+                        stakesSection
                     }
                     
                     TextField("Venue", text: $venue)
@@ -161,24 +175,62 @@ struct AddSessionView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .keyboard) {
-                    HStack {
-                        Spacer()
-                        ForEach([25, 50, 100, 200, 500], id: \.self) { n in
-                            Button("\(n)") {
-                                if amount.isEmpty || Double(amount) == 0 {
-                                    amount = String(n)
-                                } else if let current = Double(amount.replacingOccurrences(of: ",", with: "")) {
-                                    amount = String(format: "%.0f", current + Double(n))
-                                }
-                                HapticManager.lightTap()
-                            }
-                            .foregroundStyle(AppTheme.accent)
-                        }
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
-                    .padding(.horizontal)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
+    }
+    
+    private var stakesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Stakes")
+                Spacer()
+                StakesInputView(stakes: $stakes, currency: settingsStore.settings.currency)
+                    .frame(maxWidth: 120)
+            }
+            stakesPresetButtons
+        }
+    }
+    
+    private var stakesPresetButtons: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(StakesPreset.allCases, id: \.self) { preset in
+                    Button {
+                        stakes = preset.storedValue(currency: settingsStore.settings.currency)
+                        HapticManager.lightTap()
+                    } label: {
+                        Text(preset.rawValue)
+                            .font(.caption)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(stakes == preset.storedValue(currency: settingsStore.settings.currency) ? AppTheme.accent.opacity(0.3) : AppTheme.cardBackground)
+                            .foregroundStyle(stakes == preset.storedValue(currency: settingsStore.settings.currency) ? .white : .primary)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+    
+    private func timeBinding(for sessionDate: Date, time: Binding<Date?>) -> Binding<Date> {
+        Binding(
+            get: {
+                time.wrappedValue ?? calendar.date(bySettingHour: 19, minute: 0, second: 0, of: sessionDate) ?? sessionDate
+            },
+            set: { newVal in
+                let components = calendar.dateComponents([.hour, .minute], from: newVal)
+                time.wrappedValue = calendar.date(bySettingHour: components.hour ?? 0, minute: components.minute ?? 0, second: 0, of: sessionDate)
+            }
+        )
     }
     
     private func loadVariant(_ variant: String) {
@@ -204,16 +256,97 @@ struct AddSessionView: View {
             gameType: gameType,
             variant: finalVariant.isEmpty ? nil : finalVariant,
             hoursPlayed: Double(hoursPlayed),
-            stakes: stakes.isEmpty ? nil : stakes,
+            stakes: (gameType == .cash && !stakes.isEmpty) ? stakes : nil,
             venue: venue.isEmpty ? nil : venue,
             buyIn: Double(buyIn),
             cashOut: Double(cashOut),
             tournamentPosition: Int(tournamentPosition),
             rebuys: Int(rebuys),
-            handNotes: handNotes.isEmpty ? nil : handNotes
+            handNotes: handNotes.isEmpty ? nil : handNotes,
+            startTime: startTime,
+            endTime: endTime
         )
         sessionStore.addSession(session)
         dismiss()
+    }
+}
+
+// MARK: - Stakes Input
+
+struct StakesInputView: View {
+    @Binding var stakes: String
+    var currency: String = "USD"
+    @FocusState private var focusedField: Field?
+    
+    private enum Field {
+        case smallBlind, bigBlind
+    }
+    
+    private var smallBlind: Binding<String> {
+        Binding(
+            get: { parseStakes(stakes).0 },
+                set: { newVal in
+                let (_, big) = parseStakes(stakes)
+                stakes = formatStakes(small: newVal, big: big)
+            }
+        )
+    }
+    
+    private var bigBlind: Binding<String> {
+        Binding(
+            get: { parseStakes(stakes).1 },
+            set: { newVal in
+                let (small, _) = parseStakes(stakes)
+                stakes = formatStakes(small: small, big: newVal)
+            }
+        )
+    }
+    
+    private var currencySymbol: String {
+        StakesPreset.symbol(for: currency)
+    }
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(currencySymbol)
+                .font(.body)
+                .foregroundStyle(.secondary)
+            TextField("0", text: smallBlind)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.center)
+                .focused($focusedField, equals: .smallBlind)
+            Text("/")
+                .font(.body)
+                .foregroundStyle(.secondary)
+            TextField("0", text: bigBlind)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.center)
+                .focused($focusedField, equals: .bigBlind)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.tertiarySystemFill))
+        .cornerRadius(8)
+    }
+    
+    private func parseStakes(_ s: String) -> (String, String) {
+        var cleaned = s
+        for sym in ["$", "€", "£"] { cleaned = cleaned.replacingOccurrences(of: sym, with: "") }
+        let parts = cleaned.split(separator: "/").map(String.init)
+        if parts.count >= 2 {
+            return (parts[0].trimmingCharacters(in: .whitespaces), parts[1].trimmingCharacters(in: .whitespaces))
+        }
+        if parts.count == 1, !parts[0].isEmpty {
+            return (parts[0], "")
+        }
+        return ("", "")
+    }
+    
+    private func formatStakes(small: String, big: String) -> String {
+        if small.isEmpty && big.isEmpty { return "" }
+        if small.isEmpty { return "\(currencySymbol)/\(big)" }
+        if big.isEmpty { return "\(currencySymbol)\(small)/" }
+        return "\(currencySymbol)\(small)/\(currencySymbol)\(big)"
     }
 }
 

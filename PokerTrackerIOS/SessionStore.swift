@@ -23,15 +23,10 @@ class SessionStore: ObservableObject {
     
     init() {
         loadSessions()
-        // Default date range: last 12 months (avoids charts stretching far into the past)
-        if filterDateFrom == nil && filterDateTo == nil {
-            let calendar = Calendar.current
-            filterDateFrom = calendar.date(byAdding: .month, value: -12, to: Date())
-            filterDateTo = Date()
-        }
     }
     
     // MARK: - Filtered Sessions
+    /// Filtered sessions sorted by date ascending (earliest first) so display numbers align: #1 at top, #N at bottom
     var filteredSessions: [PokerSession] {
         var result = sessions
         if let type = filterGameType {
@@ -53,7 +48,10 @@ class SessionStore: ObservableObject {
                 $0.gameType.rawValue.lowercased().contains(search)
             }
         }
-        return result
+        return result.sorted {
+            if $0.date != $1.date { return $0.date > $1.date }
+            return $0.id.uuidString > $1.id.uuidString
+        }
     }
     
     // MARK: - Core Stats
@@ -234,7 +232,10 @@ class SessionStore: ObservableObject {
     
     /// Sessions sorted earliest to latest (used for display numbers; uses all sessions for stable numbering)
     var sessionsByDateAscending: [PokerSession] {
-        sessions.sorted { $0.date < $1.date }
+        sessions.sorted {
+            if $0.date != $1.date { return $0.date < $1.date }
+            return $0.id.uuidString < $1.id.uuidString
+        }
     }
     
     /// Display number for a session (1-based, earliest = #1)

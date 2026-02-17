@@ -217,7 +217,7 @@ enum SessionParserService {
            let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
            let r = Range(match.range(at: 1), in: text) {
             let venue = String(text[r]).trimmingCharacters(in: .whitespaces)
-            return venue.count > 2 ? venue : nil
+            return venue.count > 2 ? VenueCleaner.clean(venue) : nil
         }
         return nil
     }

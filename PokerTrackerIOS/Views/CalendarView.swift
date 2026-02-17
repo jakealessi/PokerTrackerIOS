@@ -38,7 +38,7 @@ struct CalendarView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
                 ScrollView {
                     LazyVStack(spacing: 20) {
                         ForEach(monthRange, id: \.self) { monthStart in
@@ -46,11 +46,13 @@ struct CalendarView: View {
                                 .id(monthStart)
                         }
                     }
+                    .frame(maxWidth: .infinity)
                     .scrollTargetLayout()
                     .padding(.vertical, 12)
                     .padding(.horizontal)
                 }
-                .scrollPosition(id: $scrollPosition, anchor: .center)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scrollPosition(id: $scrollPosition, anchor: .top)
                 .task {
                     // Avoid first-open "slightly off-center" glitches by centering only after
                     // the initial layout pass has happened (and doing it without animation).
@@ -67,23 +69,25 @@ struct CalendarView: View {
                 .onChange(of: selectedDate) { _, newDate in
                     guard let date = newDate,
                           let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) else { return }
-                    // Update scrollPosition so it stays in sync; scroll without animation so we don't
-                    // overshoot or fight the day panel animating in (which changes layout and "center").
-                    var t = Transaction()
-                    t.animation = nil
-                    withTransaction(t) {
-                        scrollPosition = monthStart
-                    }
+                    scrollPosition = monthStart
                 }
                 
                 if let date = selectedDate {
-                    daySessionsSection(for: date)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        daySessionsSection(for: date)
+                            .id(date)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .move(edge: .bottom)),
+                                removal: .opacity.combined(with: .move(edge: .bottom))
+                            ))
+                    }
                 }
             }
-            .animation(AppTheme.smoothSpring, value: selectedDate)
+            .animation(AppTheme.smoothSpring, value: selectedDate?.timeIntervalSince1970)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -95,11 +99,7 @@ struct CalendarView: View {
                     HStack(spacing: 12) {
                         Button("Today") {
                             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))
-                            var t = Transaction()
-                            t.animation = nil
-                            withTransaction(t) {
-                                scrollPosition = month
-                            }
+                            scrollPosition = month
                             withAnimation(AppTheme.smoothSpring) {
                                 selectedDate = Date()
                             }

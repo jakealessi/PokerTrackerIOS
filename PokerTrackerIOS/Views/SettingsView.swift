@@ -24,6 +24,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Settings")
@@ -38,7 +39,7 @@ struct SettingsView: View {
     
     private var aiSection: some View {
         Section {
-            SecureField("Gemini API Key (Free)", text: Binding(
+            SecureField("Gemini API Key", text: Binding(
                 get: { settingsStore.settings.geminiAPIKey ?? "" },
                 set: { val in
                     var s = settingsStore.settings
@@ -50,7 +51,7 @@ struct SettingsView: View {
             .autocapitalization(.none)
             .autocorrectionDisabled()
             
-            SecureField("OpenAI API Key (Optional)", text: Binding(
+            SecureField("OpenAI API Key", text: Binding(
                 get: { settingsStore.settings.openAIAPIKey ?? "" },
                 set: { val in
                     var s = settingsStore.settings
@@ -64,7 +65,7 @@ struct SettingsView: View {
         } header: {
             Text("AI Session Logging")
         } footer: {
-            Text("Add a Gemini key (free at aistudio.google.com) for AI parsing. OpenAI is optional. Keys stored locally.")
+            Text("Use your own key for a more powerful model. Add a Gemini key (free at aistudio.google.com) or OpenAI key. Keys stored locally.")
         }
     }
     

@@ -44,8 +44,10 @@ struct SessionsListView: View {
                 searchBar
             }
             .animation(AppTheme.smoothSpring, value: sessionStore.filteredSessions.isEmpty)
+            .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Sessions")

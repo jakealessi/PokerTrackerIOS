@@ -21,6 +21,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var tournamentPosition: Int?
     var rebuys: Int?
     var handNotes: String?
+    var startTime: Date?
+    var endTime: Date?
     
     init(
         id: UUID = UUID(),
@@ -37,7 +39,9 @@ struct PokerSession: Identifiable, Codable, Equatable {
         cashOut: Double? = nil,
         tournamentPosition: Int? = nil,
         rebuys: Int? = nil,
-        handNotes: String? = nil
+        handNotes: String? = nil,
+        startTime: Date? = nil,
+        endTime: Date? = nil
     ) {
         self.id = id
         self.sessionNumber = sessionNumber
@@ -54,6 +58,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.tournamentPosition = tournamentPosition
         self.rebuys = rebuys
         self.handNotes = handNotes
+        self.startTime = startTime
+        self.endTime = endTime
     }
     
     // Migration: if sessionNumber is missing from old data, default to 0
@@ -74,6 +80,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
         tournamentPosition = try c.decodeIfPresent(Int.self, forKey: .tournamentPosition)
         rebuys = try c.decodeIfPresent(Int.self, forKey: .rebuys)
         handNotes = try c.decodeIfPresent(String.self, forKey: .handNotes)
+        startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
+        endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
     }
     
     var isWin: Bool { amount > 0 }
@@ -100,6 +108,22 @@ struct PokerSession: Identifiable, Codable, Equatable {
         // Migrate old PLO sessions
         if gameType == .plo { return PokerVariant.plo.rawValue }
         return PokerVariant.noLimitHoldem.rawValue
+    }
+    
+    /// Abbreviated variant for compact display (NLHE, PLO, PLO5, etc.)
+    var displayVariantAbbreviation: String {
+        Self.abbreviation(for: displayVariant)
+    }
+    
+    /// Convert variant or game type string to abbreviation (NLHE, PLO, Cash, MTT, etc.)
+    static func abbreviation(for variant: String) -> String {
+        if let match = PokerVariant.allCases.first(where: { $0.rawValue == variant }) {
+            return match.abbreviation
+        }
+        if let match = GameType.allCases.first(where: { $0.rawValue == variant }) {
+            return match.abbreviation
+        }
+        return variant
     }
     
     static func formatCurrency(_ value: Double, currency: String = "USD") -> String {
@@ -145,9 +169,20 @@ enum GameType: String, Codable, CaseIterable {
     case homeGame = "Home Game"
     case online = "Online"
     
-    /// Formats shown in pickers (excludes legacy PLO entry)
+    var abbreviation: String {
+        switch self {
+        case .cash: return "Cash"
+        case .plo: return "PLO"
+        case .tournament: return "MTT"
+        case .sitAndGo: return "SNG"
+        case .homeGame: return "Home"
+        case .online: return "Online"
+        }
+    }
+    
+    /// Formats shown in pickers (excludes legacy PLO, homeGame, online)
     static var formatOptions: [GameType] {
-        [.cash, .tournament, .sitAndGo, .homeGame, .online]
+        [.cash, .tournament, .sitAndGo]
     }
 }
 
@@ -167,15 +202,56 @@ enum PokerVariant: String, CaseIterable {
     case shortDeck = "Short Deck (6+)"
     case openFaceChinese = "Open Face Chinese"
     case mixed = "Mixed Games"
+    
+    var abbreviation: String {
+        switch self {
+        case .noLimitHoldem: return "NLHE"
+        case .limitHoldem: return "LHE"
+        case .plo: return "PLO"
+        case .ploHiLo: return "PLO8"
+        case .omahaHiLo: return "O8"
+        case .fiveCardPlo: return "PLO5"
+        case .sevenCardStud: return "7CS"
+        case .studHiLo: return "Stud8"
+        case .razz: return "Razz"
+        case .tripleDraw: return "27TD"
+        case .badugi: return "Badugi"
+        case .shortDeck: return "6+"
+        case .openFaceChinese: return "OFC"
+        case .mixed: return "Mixed"
+        }
+    }
 }
 
-// MARK: - Stakes presets
+// MARK: - Stakes presets for quick-select buttons
 enum StakesPreset: String, CaseIterable {
-    case micro = "$0.25/$0.50"
-    case low1 = "$1/$2"
-    case low2 = "$2/$5"
-    case mid = "$5/$10"
-    case high = "$10/$25"
-    case highRoller = "$25/$50+"
-    case custom = "Custom"
+    case micro1 = ".1/.2"
+    case micro2 = ".25/.50"
+    case low1 = ".50/1"
+    case mid1 = "2/5"
+    case mid2 = "5/10"
+    case high = "10/20"
+    
+    /// Symbol for currency code (USD->$, EUR->€, GBP->£)
+    static func symbol(for currency: String) -> String {
+        switch currency {
+        case "USD": return "$"
+        case "EUR": return "€"
+        case "GBP": return "£"
+        default: return "$"
+        }
+    }
+    
+    /// Stored value with currency symbol: X/Y format
+    func storedValue(currency: String = "USD") -> String {
+        let sym = Self.symbol(for: currency)
+        switch self {
+        case .micro1: return "\(sym)0.10/\(sym)0.20"
+        case .micro2: return "\(sym)0.25/\(sym)0.50"
+        case .low1: return "\(sym)0.50/\(sym)1"
+        case .mid1: return "\(sym)2/\(sym)5"
+        case .mid2: return "\(sym)5/\(sym)10"
+        case .high: return "\(sym)10/\(sym)20"
+        }
+    }
 }

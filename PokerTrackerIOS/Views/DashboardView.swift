@@ -32,6 +32,7 @@ struct DashboardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .navigationTitle("Poker Tracker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -348,7 +349,8 @@ struct DashboardView: View {
             : PokerSession.formatCurrency(abs(p.amount), currency: settingsStore.settings.currency)
         parts.append(p.amount >= 0 ? "Won \(amtStr)" : "Lost \(amtStr)")
         if let s = p.stakes { parts.append(s) }
-        parts.append(p.variant ?? p.gameType.rawValue)
+        let variantStr = p.variant ?? p.gameType.rawValue
+        parts.append(PokerSession.abbreviation(for: variantStr))
         if let v = p.venue { parts.append("at \(v)") }
         if let h = p.hoursPlayed { parts.append("\(String(format: "%.1f", h))h") }
         return parts.joined(separator: " · ")

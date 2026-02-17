@@ -27,6 +27,10 @@ struct EditSessionView: View {
     @State private var tournamentPosition: String = ""
     @State private var rebuys: String = ""
     @State private var handNotes: String = ""
+    @State private var startTime: Date? = nil
+    @State private var endTime: Date? = nil
+    
+    private let calendar = Calendar.current
     
     private var parsedAmount: Double {
         let cleaned = amount.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
@@ -57,6 +61,16 @@ struct EditSessionView: View {
                     .pickerStyle(.segmented)
                     
                     DatePicker("Date", selection: $date, displayedComponents: .date)
+                    .onChange(of: date) { _, newDate in
+                        if let start = startTime {
+                            let comps = calendar.dateComponents([.hour, .minute], from: start)
+                            startTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                        }
+                        if let end = endTime {
+                            let comps = calendar.dateComponents([.hour, .minute], from: end)
+                            endTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                        }
+                    }
                 }
                 
                 Section("Game") {
@@ -82,9 +96,52 @@ struct EditSessionView: View {
                 }
                 
                 Section("Session Details") {
+                    Toggle("Add start time", isOn: Binding(
+                        get: { startTime != nil },
+                        set: { if $0 { startTime = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: date) ?? date } else { startTime = nil } }
+                    ))
+                    if startTime != nil {
+                        DatePicker("Start", selection: timeBinding(for: date, time: $startTime), displayedComponents: .hourAndMinute)
+                    }
+                    
+                    Toggle("Add end time", isOn: Binding(
+                        get: { endTime != nil },
+                        set: { if $0 { endTime = calendar.date(bySettingHour: 23, minute: 30, second: 0, of: date) ?? date } else { endTime = nil } }
+                    ))
+                    if endTime != nil {
+                        DatePicker("End", selection: timeBinding(for: date, time: $endTime), displayedComponents: .hourAndMinute)
+                    }
+                    
                     TextField("Hours Played", text: $hoursPlayed)
                         .keyboardType(.decimalPad)
-                    TextField("Stakes (e.g. $1/$2)", text: $stakes)
+                    if gameType == .cash {
+                        HStack {
+                            Text("Stakes")
+                            Spacer()
+                        StakesInputView(stakes: $stakes, currency: settingsStore.settings.currency)
+                            .frame(maxWidth: 120)
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(StakesPreset.allCases, id: \.self) { preset in
+                                    Button {
+                                        stakes = preset.storedValue(currency: settingsStore.settings.currency)
+                                        HapticManager.lightTap()
+                                    } label: {
+                                        Text(preset.rawValue)
+                                            .font(.caption)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(stakes == preset.storedValue(currency: settingsStore.settings.currency) ? AppTheme.accent.opacity(0.3) : AppTheme.cardBackground)
+                                            .foregroundStyle(stakes == preset.storedValue(currency: settingsStore.settings.currency) ? .white : .primary)
+                                            .cornerRadius(8)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 4)
+                        }
+                    }
                     TextField("Venue", text: $venue)
                 }
                 
@@ -126,7 +183,29 @@ struct EditSessionView: View {
                 }
             }
             .onAppear { loadSession() }
+            .toolbar {
+                ToolbarItem(placement: .keyboard) {
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(maxWidth: .infinity)
+                }
+            }
         }
+    }
+    
+    private func timeBinding(for sessionDate: Date, time: Binding<Date?>) -> Binding<Date> {
+        Binding(
+            get: {
+                time.wrappedValue ?? calendar.date(bySettingHour: 19, minute: 0, second: 0, of: sessionDate) ?? sessionDate
+            },
+            set: { newVal in
+                let components = calendar.dateComponents([.hour, .minute], from: newVal)
+                time.wrappedValue = calendar.date(bySettingHour: components.hour ?? 0, minute: components.minute ?? 0, second: 0, of: sessionDate)
+            }
+        )
     }
     
     private func loadVariant(_ variant: String) {
@@ -150,6 +229,8 @@ struct EditSessionView: View {
         hoursPlayed = session.hoursPlayed.map { String(format: "%.1f", $0) } ?? ""
         stakes = session.stakes ?? ""
         venue = session.venue ?? ""
+        startTime = session.startTime
+        endTime = session.endTime
         buyIn = session.buyIn.map { String(format: "%.2f", $0) } ?? ""
         cashOut = session.cashOut.map { String(format: "%.2f", $0) } ?? ""
         tournamentPosition = session.tournamentPosition.map { String($0) } ?? ""
@@ -166,8 +247,10 @@ struct EditSessionView: View {
         updated.variant = finalVariant.isEmpty ? nil : finalVariant
         updated.notes = notes
         updated.hoursPlayed = Double(hoursPlayed)
-        updated.stakes = stakes.isEmpty ? nil : stakes
+        updated.stakes = (gameType == .cash && !stakes.isEmpty) ? stakes : nil
         updated.venue = venue.isEmpty ? nil : venue
+        updated.startTime = startTime
+        updated.endTime = endTime
         updated.buyIn = Double(buyIn)
         updated.cashOut = Double(cashOut)
         updated.tournamentPosition = Int(tournamentPosition)

@@ -45,8 +45,10 @@ struct AnalyticsView: View {
                 .padding()
                 .id(sessionStore.dataVersion)
             }
+            .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Stats")
@@ -313,7 +315,7 @@ struct AnalyticsView: View {
             ForEach(sessionStore.sessionsByVariant, id: \.0) { variant, count, profit in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(variant)
+                        Text(PokerSession.abbreviation(for: variant))
                             .font(.subheadline)
                         Spacer()
                         Text(PokerSession.formatCurrency(profit, currency: currency))

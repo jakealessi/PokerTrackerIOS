@@ -14,8 +14,16 @@ struct SessionRowView: View {
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
     
+    private var gameInfoText: String {
+        var parts: [String] = [session.displayVariantAbbreviation, session.gameType.abbreviation]
+        if let stakes = session.stakes, !stakes.isEmpty {
+            parts.append(stakes)
+        }
+        return parts.joined(separator: " · ")
+    }
+    
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 12) {
             // Session number badge (dynamic: earliest = #1)
             Text("#\(displayNumber ?? 0)")
                 .font(.caption2)
@@ -25,33 +33,39 @@ struct SessionRowView: View {
                 .background(session.isWin ? winColor : lossColor)
                 .clipShape(Circle())
             
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(PokerSession.formatCurrency(session.amount, currency: currency))
                     .font(.headline)
                     .foregroundStyle(session.isWin ? winColor : lossColor)
-                HStack(spacing: 4) {
-                    Text(session.displayVariant)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                    Text("•")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                    Text(session.gameType.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                    if let stakes = session.stakes, !stakes.isEmpty {
-                        Text("• \(stakes)")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
+                
+                Text(gameInfoText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(2)
+                
+                if let venue = session.venue, !venue.isEmpty {
+                    HStack(spacing: 3) {
+                        Image(systemName: "mappin.circle")
+                            .font(.caption2)
+                        Text(venue)
+                            .font(.caption2)
                     }
+                    .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
                 }
             }
             
-            Spacer()
+            Spacer(minLength: 8)
             
-            Text(session.date, style: .date)
-                .font(.caption)
-                .foregroundStyle(AppTheme.secondaryText)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(session.date, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                if let hours = session.hoursPlayed, hours > 0 {
+                    Text("\(String(format: "%.1f", hours)) hrs")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.secondaryText.opacity(0.8))
+                }
+            }
         }
         .padding(12)
         .background(AppTheme.cardBackground)

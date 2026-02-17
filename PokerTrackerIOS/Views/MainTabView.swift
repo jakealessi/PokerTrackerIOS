@@ -29,6 +29,7 @@ struct MainTabView: View {
         .tint(AppTheme.accent)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea(.all))
+        .clipped()
     }
 }
 
