@@ -26,6 +26,10 @@ struct SessionDetailView: View {
         .navigationTitle(session.displayVariant)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(session.displayVariant)
+                    .font(.headline)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
@@ -69,7 +73,7 @@ struct SessionDetailView: View {
                 .foregroundStyle(.secondary)
             Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
                 .font(.system(size: 36, weight: .bold))
-                .foregroundStyle(session.isWin ? .green : .red)
+                .foregroundStyle(session.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
             Text(session.date, style: .date)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.secondaryText)

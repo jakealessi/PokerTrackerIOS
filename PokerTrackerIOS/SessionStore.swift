@@ -187,6 +187,11 @@ class SessionStore: ObservableObject {
     var firstSessionDate: Date? {
         filteredSessions.min(by: { $0.date < $1.date })?.date
     }
+
+    /// Earliest session date across all sessions (unfiltered)
+    var earliestSessionDate: Date? {
+        sessions.min(by: { $0.date < $1.date })?.date
+    }
     
     /// Date range of all sessions (unfiltered) for preset bounds
     var allSessionsDateRange: (start: Date, end: Date)? {
@@ -210,6 +215,19 @@ class SessionStore: ObservableObject {
     func sessions(on date: Date) -> [PokerSession] {
         sessions.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
             .sorted { $0.date < $1.date }
+    }
+    
+    /// Total profit for a given calendar day
+    func dailyProfit(on date: Date) -> Double {
+        sessions(on: date).reduce(0) { $0 + $1.amount }
+    }
+    
+    /// Total profit for a given month
+    func monthlyProfit(for monthStart: Date) -> Double {
+        let cal = Calendar.current
+        return sessions
+            .filter { cal.isDate($0.date, equalTo: monthStart, toGranularity: .month) }
+            .reduce(0) { $0 + $1.amount }
     }
     
     // MARK: - Session Numbering (dynamic: earliest = #1, latest = #N)

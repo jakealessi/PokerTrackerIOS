@@ -12,6 +12,8 @@ struct AnalyticsView: View {
     @State private var showingDateRange = false
     
     private var currency: String { settingsStore.settings.currency }
+    private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
+    private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
     
     var body: some View {
         NavigationStack {
@@ -44,7 +46,12 @@ struct AnalyticsView: View {
                 .id(sessionStore.dataVersion)
             }
             .navigationTitle("Stats")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Stats")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingDateRange = true
@@ -118,10 +125,10 @@ struct AnalyticsView: View {
     
     private var summaryCards: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            summaryCard("Total P/L", PokerSession.formatCurrency(sessionStore.totalProfit, currency: currency), sessionStore.totalProfit >= 0 ? .green : .red)
+            summaryCard("Total P/L", PokerSession.formatCurrency(sessionStore.totalProfit, currency: currency), sessionStore.totalProfit >= 0 ? winColor : lossColor)
             summaryCard("Sessions", "\(sessionStore.totalSessions)", AppTheme.accent)
             summaryCard("Win Rate", String(format: "%.0f%%", sessionStore.winRate), AppTheme.accent)
-            summaryCard("Avg Session", PokerSession.formatCurrency(sessionStore.averageSession, currency: currency), sessionStore.averageSession >= 0 ? .green : .red)
+            summaryCard("Avg Session", PokerSession.formatCurrency(sessionStore.averageSession, currency: currency), sessionStore.averageSession >= 0 ? winColor : lossColor)
         }
     }
     
@@ -145,7 +152,7 @@ struct AnalyticsView: View {
     
     private var profitLineChart: some View {
         let data = sessionStore.profitOverTime
-        let color: Color = sessionStore.totalProfit >= 0 ? .green : .red
+        let color: Color = sessionStore.totalProfit >= 0 ? winColor : lossColor
         return VStack(alignment: .leading, spacing: 8) {
             Text("Cumulative Profit")
                 .font(.headline)
@@ -211,32 +218,32 @@ struct AnalyticsView: View {
             HStack(spacing: 20) {
                 Chart {
                     SectorMark(angle: .value("Wins", sessionStore.winCount), innerRadius: .ratio(0.6))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(winColor)
                     SectorMark(angle: .value("Losses", max(sessionStore.lossCount, 0)), innerRadius: .ratio(0.6))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(lossColor)
                 }
                 .frame(width: 120, height: 120)
                 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
-                        Circle().fill(.green).frame(width: 10, height: 10)
+                        Circle().fill(winColor).frame(width: 10, height: 10)
                         Text("\(sessionStore.winCount) Wins")
                             .font(.subheadline)
                     }
                     HStack(spacing: 6) {
-                        Circle().fill(.red).frame(width: 10, height: 10)
+                        Circle().fill(lossColor).frame(width: 10, height: 10)
                         Text("\(sessionStore.lossCount) Losses")
                             .font(.subheadline)
                     }
                     if let best = sessionStore.bestSession {
                         Text("Best: \(PokerSession.formatCurrency(best.amount, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(winColor)
                     }
                     if let worst = sessionStore.worstSession {
                         Text("Worst: \(PokerSession.formatCurrency(worst.amount, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(lossColor)
                     }
                 }
                 
@@ -262,7 +269,7 @@ struct AnalyticsView: View {
                         y: .value("Profit", profit),
                         width: .ratio(0.6)
                     )
-                    .foregroundStyle(profit >= 0 ? Color.green : Color.red)
+                    .foregroundStyle(profit >= 0 ? winColor : lossColor)
                     .cornerRadius(4)
                 }
             }
@@ -312,13 +319,13 @@ struct AnalyticsView: View {
                         Text(PokerSession.formatCurrency(profit, currency: currency))
                             .font(.subheadline)
                             .fontWeight(.medium)
-                            .foregroundStyle(profit >= 0 ? .green : .red)
+                            .foregroundStyle(profit >= 0 ? winColor : lossColor)
                     }
                     
                     GeometryReader { geo in
                         let barWidth = max(geo.size.width * CGFloat(abs(profit) / maxProfit), 4)
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(profit >= 0 ? Color.green.opacity(0.7) : Color.red.opacity(0.7))
+                            .fill(profit >= 0 ? winColor.opacity(0.7) : lossColor.opacity(0.7))
                             .frame(width: barWidth, height: 8)
                     }
                     .frame(height: 8)
@@ -339,22 +346,22 @@ struct AnalyticsView: View {
     private var detailStats: some View {
         VStack(alignment: .leading, spacing: 0) {
             if sessionStore.thisMonthProfit != 0 {
-                detailRow("This Month", PokerSession.formatCurrency(sessionStore.thisMonthProfit, currency: currency), sessionStore.thisMonthProfit >= 0 ? .green : .red)
+                detailRow("This Month", PokerSession.formatCurrency(sessionStore.thisMonthProfit, currency: currency), sessionStore.thisMonthProfit >= 0 ? winColor : lossColor)
                 Divider()
             }
             if sessionStore.totalHoursPlayed > 0 {
                 detailRow("Total Hours", String(format: "%.1f", sessionStore.totalHoursPlayed), .primary)
                 Divider()
                 if let rate = sessionStore.hourlyRate {
-                    detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: currency) + "/hr", rate >= 0 ? .green : .red)
+                    detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: currency) + "/hr", rate >= 0 ? winColor : lossColor)
                     Divider()
                 }
             }
             if sessionStore.longestWinStreak > 0 {
-                detailRow("Best Streak", "\(sessionStore.longestWinStreak) wins", .green)
+                detailRow("Best Streak", "\(sessionStore.longestWinStreak) wins", winColor)
                 Divider()
             }
-            detailRow("Current Streak", sessionStore.currentWinStreak > 0 ? "\(sessionStore.currentWinStreak)W" : "\(sessionStore.currentLossStreak)L", sessionStore.currentWinStreak > 0 ? .green : .red)
+            detailRow("Current Streak", sessionStore.currentWinStreak > 0 ? "\(sessionStore.currentWinStreak)W" : "\(sessionStore.currentLossStreak)L", sessionStore.currentWinStreak > 0 ? winColor : lossColor)
         }
         .padding()
         .background(AppTheme.cardBackground)
@@ -440,6 +447,10 @@ struct StatsDateRangeSheet: View {
             .navigationTitle("Date range")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Date range")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }

@@ -111,6 +111,10 @@ struct EditSessionView: View {
             .navigationTitle("Edit Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Edit Session")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }

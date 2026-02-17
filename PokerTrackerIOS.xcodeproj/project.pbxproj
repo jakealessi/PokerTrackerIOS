@@ -25,14 +25,13 @@
 		A1000018 /* StatCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018 /* StatCard.swift */; };
 		A1000019 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019 /* SessionRowView.swift */; };
 		A1000020 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020 /* OnboardingView.swift */; };
-		A1000030 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030 /* CalendarView.swift */; };
-
 		A1000022 /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022 /* HapticManager.swift */; };
 		A1000023 /* AISessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000023 /* AISessionService.swift */; };
 		A1000025 /* APIKeys.plist in Resources */ = {isa = PBXBuildFile; fileRef = A2000025 /* APIKeys.plist */; };
 		A1000027 /* APIKeysLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000027 /* APIKeysLoader.swift */; };
 		A1000028 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000028 /* AppTheme.swift */; };
 		A1000029 /* SessionParserService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000029 /* SessionParserService.swift */; };
+		A1000030 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030 /* CalendarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,8 +53,6 @@
 		A2000018 /* StatCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatCard.swift; sourceTree = "<group>"; };
 		A2000019 /* SessionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowView.swift; sourceTree = "<group>"; };
 		A2000020 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		A2000030 /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
-
 		A2000022 /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
 		A2000023 /* AISessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISessionService.swift; sourceTree = "<group>"; };
 		A2000025 /* APIKeys.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = APIKeys.plist; sourceTree = "<group>"; };
@@ -63,6 +60,7 @@
 		A2000027 /* APIKeysLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeysLoader.swift; sourceTree = "<group>"; };
 		A2000028 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		A2000029 /* SessionParserService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionParserService.swift; sourceTree = "<group>"; };
+		A2000030 /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
 		A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -131,7 +129,6 @@
 				A2000014 /* EditSessionView.swift */,
 				A2000006 /* AddSessionView.swift */,
 				A2000020 /* OnboardingView.swift */,
-
 				A2000015 /* AnalyticsView.swift */,
 				A2000017 /* SettingsView.swift */,
 				A2000030 /* CalendarView.swift */,
@@ -275,7 +272,6 @@
 				A1000019 /* SessionRowView.swift in Sources */,
 				A1000020 /* OnboardingView.swift in Sources */,
 				A1000030 /* CalendarView.swift in Sources */,
-
 				A1000022 /* HapticManager.swift in Sources */,
 				A1000027 /* APIKeysLoader.swift in Sources */,
 				A1000023 /* AISessionService.swift in Sources */,
@@ -416,11 +412,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -442,11 +439,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

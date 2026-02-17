@@ -106,7 +106,33 @@ struct PokerSession: Identifiable, Codable, Equatable {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
         return formatter.string(from: NSNumber(value: value)) ?? "$\(String(format: "%.2f", value))"
+    }
+    
+    /// Compact format for calendars: <$100 shows 1 decimal if cents, $100–999 integer if whole, $1000+ uses K
+    static func formatCompactCurrency(_ value: Double, currency: String = "USD") -> String {
+        let absVal = abs(value)
+        let symbol = currencySymbol(for: currency)
+        let hasCents = absVal != floor(absVal)
+        if absVal < 100 {
+            return hasCents ? "\(symbol)\(String(format: "%.1f", absVal))" : "\(symbol)\(Int(absVal))"
+        } else if absVal < 1000 {
+            return hasCents ? "\(symbol)\(String(format: "%.2f", absVal))" : "\(symbol)\(Int(absVal))"
+        } else {
+            let k = absVal / 1000
+            return k == floor(k) ? "\(symbol)\(Int(k))K" : "\(symbol)\(String(format: "%.1f", k))K"
+        }
+    }
+    
+    private static func currencySymbol(for code: String) -> String {
+        switch code {
+        case "USD": return "$"
+        case "EUR": return "€"
+        case "GBP": return "£"
+        default: return "$"
+        }
     }
 }
 

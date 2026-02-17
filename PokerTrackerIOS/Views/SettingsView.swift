@@ -23,6 +23,13 @@ struct SettingsView: View {
                 aiSection
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Settings")
+                        .font(.headline)
+                }
+            }
             .sheet(isPresented: $showingExportSheet) {
                 ExportSheet(data: exportData)
             }
@@ -146,6 +153,20 @@ struct SettingsView: View {
     
     private var preferencesSection: some View {
         Section {
+            Picker("Win / Loss Colors", selection: Binding(
+                get: { settingsStore.settings.profitLossColorScheme },
+                set: { val in
+                    var s = settingsStore.settings
+                    s.profitLossColorScheme = val
+                    settingsStore.settings = s
+                }
+            )) {
+                ForEach(ProfitLossColorScheme.allCases, id: \.self) { scheme in
+                    Text(scheme.rawValue).tag(scheme)
+                }
+            }
+            .accessibilityHint("Choose colorblind-friendly alternatives")
+            
             Toggle("Show Hourly Rate", isOn: Binding(
                 get: { settingsStore.settings.showHourlyRate },
                 set: { val in
@@ -165,6 +186,8 @@ struct SettingsView: View {
             ))
         } header: {
             Text("Preferences")
+        } footer: {
+            Text("Win/loss colors can be changed for colorblind accessibility.")
         }
     }
     
@@ -209,7 +232,12 @@ struct ExportSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle("Export Data")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Export Data")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     ShareLink(item: data, subject: Text("Poker Sessions Export"), message: Text("My poker session data")) {
                         Label("Share", systemImage: "square.and.arrow.up")

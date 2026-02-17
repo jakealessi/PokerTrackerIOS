@@ -6,9 +6,13 @@
 import SwiftUI
 
 struct SessionRowView: View {
+    @EnvironmentObject var settingsStore: SettingsStore
     let session: PokerSession
     var displayNumber: Int?
     var currency: String = "USD"
+    
+    private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
+    private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
     
     var body: some View {
         HStack {
@@ -18,13 +22,13 @@ struct SessionRowView: View {
                 .fontWeight(.bold)
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
-                .background(session.isWin ? Color.green : Color.red)
+                .background(session.isWin ? winColor : lossColor)
                 .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(PokerSession.formatCurrency(session.amount, currency: currency))
                     .font(.headline)
-                    .foregroundStyle(session.isWin ? .green : .red)
+                    .foregroundStyle(session.isWin ? winColor : lossColor)
                 HStack(spacing: 4) {
                     Text(session.displayVariant)
                         .font(.caption)

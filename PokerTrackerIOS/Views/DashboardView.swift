@@ -33,7 +33,12 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Poker Tracker")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Poker Tracker")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAddSession = true } label: {
                         Image(systemName: "plus.circle.fill")
@@ -41,7 +46,10 @@ struct DashboardView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddSession) { AddSessionView() }
+            .sheet(isPresented: $showingAddSession) {
+                AddSessionView()
+                    .presentationDetents([.medium, .large])
+            }
         }
     }
     
@@ -55,7 +63,7 @@ struct DashboardView: View {
                     .foregroundStyle(AppTheme.secondaryText)
                 Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(bankroll >= 0 ? .green : .red)
+                    .foregroundStyle(bankroll >= 0 ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
             }
             
             HStack(spacing: 0) {
@@ -97,6 +105,11 @@ struct DashboardView: View {
             ScrollView {
                 if chatMessages.isEmpty {
                     emptyPrompt
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // Make tapping the empty area immediately focus the input
+                            inputFocused = true
+                        }
                 } else {
                     LazyVStack(spacing: 8) {
                         ForEach(chatMessages) { message in
@@ -117,7 +130,7 @@ struct DashboardView: View {
                 }
             }
             .onChange(of: chatMessages.count) { _, _ in
-                withAnimation {
+                withAnimation(AppTheme.smoothSpring) {
                     if let last = chatMessages.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
@@ -125,11 +138,12 @@ struct DashboardView: View {
             }
             .onChange(of: isAILoading) { _, loading in
                 if loading {
-                    withAnimation {
+                    withAnimation(AppTheme.smoothSpring) {
                         proxy.scrollTo("loading", anchor: .bottom)
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
     
@@ -187,12 +201,23 @@ struct DashboardView: View {
             HStack(spacing: 10) {
                 if !chatMessages.isEmpty {
                     Button {
-                        withAnimation {
+                        withAnimation(AppTheme.smoothSpring) {
                             chatMessages.removeAll()
                             aiError = nil
                         }
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                // Dismiss button when keyboard is focused
+                if inputFocused {
+                    Button {
+                        inputFocused = false
+                    } label: {
+                        Image(systemName: "chevron.down")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
@@ -229,7 +254,7 @@ struct DashboardView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppTheme.smoothSpring) {
             chatMessages.append(ChatMessage(role: .user, text: text))
         }
         inputText = ""
@@ -256,7 +281,7 @@ struct DashboardView: View {
             
             switch result {
             case .followUp(let question):
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(AppTheme.smoothSpring) {
                     chatMessages.append(ChatMessage(role: .assistant, text: question))
                 }
                 
@@ -280,7 +305,7 @@ struct DashboardView: View {
                 
                 let num = sessionStore.displayNumber(for: session) ?? 0
                 let summary = buildSummary(parsed, sessionNumber: num)
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(AppTheme.smoothSpring) {
                     chatMessages.append(ChatMessage(role: .assistant, text: summary))
                 }
                 if settingsStore.settings.hapticFeedback { HapticManager.success() }
@@ -291,7 +316,7 @@ struct DashboardView: View {
                     sessionStore.updateSession(existing)
                     
                     let fieldNames = fields.keys.joined(separator: ", ")
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    withAnimation(AppTheme.smoothSpring) {
                         chatMessages.append(ChatMessage(
                             role: .assistant,
                             text: "Updated session #\(sessionNumber) (\(fieldNames))."
@@ -299,7 +324,7 @@ struct DashboardView: View {
                     }
                     if settingsStore.settings.hapticFeedback { HapticManager.success() }
                 } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    withAnimation(AppTheme.smoothSpring) {
                         chatMessages.append(ChatMessage(
                             role: .assistant,
                             text: "I couldn't find session #\(sessionNumber). Check the Sessions tab for valid session numbers."
@@ -318,7 +343,9 @@ struct DashboardView: View {
     private func buildSummary(_ p: ParsedSession, sessionNumber: Int) -> String {
         var parts: [String] = []
         parts.append("Session #\(sessionNumber) logged!")
-        let amtStr = PokerSession.formatCurrency(p.amount, currency: settingsStore.settings.currency)
+        let amtStr = p.amount >= 0
+            ? PokerSession.formatCurrency(p.amount, currency: settingsStore.settings.currency)
+            : PokerSession.formatCurrency(abs(p.amount), currency: settingsStore.settings.currency)
         parts.append(p.amount >= 0 ? "Won \(amtStr)" : "Lost \(amtStr)")
         if let s = p.stakes { parts.append(s) }
         parts.append(p.variant ?? p.gameType.rawValue)

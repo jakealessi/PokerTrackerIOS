@@ -8,111 +8,165 @@ import SwiftUI
 struct CalendarView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
-    @State private var displayMonth: Date = Date()
     @State private var selectedDate: Date?
     @State private var showingAddSession = false
+    @State private var scrollPosition: Date?
+    @State private var didInitialCenter = false
     
     private let calendar = Calendar.current
     private let weekdaySymbols = Calendar.current.shortWeekdaySymbols
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
     
+    /// Range of months: from first session's month through current month + 2
+    private var monthRange: [Date] {
+        guard let thisMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return [] }
+        let startMonth: Date
+        if let earliest = sessionStore.earliestSessionDate {
+            startMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: earliest)) ?? thisMonth
+        } else {
+            startMonth = calendar.date(byAdding: .month, value: -12, to: thisMonth) ?? thisMonth
+        }
+        var months: [Date] = []
+        var current = startMonth
+        let endMonth = calendar.date(byAdding: .month, value: 2, to: thisMonth) ?? thisMonth
+        while current <= endMonth {
+            months.append(current)
+            current = calendar.date(byAdding: .month, value: 1, to: current) ?? current
+        }
+        return months
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                monthNavigation
-                weekdayHeaders
-                monthGrid
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 20) {
+                            ForEach(monthRange, id: \.self) { monthStart in
+                                monthBlock(for: monthStart)
+                                    .id(monthStart)
+                            }
+                        }
+                        .scrollTargetLayout()
+                        .padding(.vertical, 12)
+                        .padding(.horizontal)
+                    }
+                    .scrollPosition(id: $scrollPosition, anchor: .center)
+                    .task {
+                        // Avoid first-open "slightly off-center" glitches by centering only after
+                        // the initial layout pass has happened (and doing it without animation).
+                        guard !didInitialCenter else { return }
+                        didInitialCenter = true
+                        
+                        guard let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return }
+                        scrollPosition = month
+                        
+                        // One extra tick helps when content height settles (nav bar / safe area).
+                        await Task.yield()
+                        scrollPosition = month
+                    }
+                    .onChange(of: selectedDate) { _, newDate in
+                        if let date = newDate,
+                           let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) {
+                            // Use scrollTo for direct centering - this centers the month without scrolling through intermediate months
+                            // scrollTo jumps directly to the target, the animation just makes the movement smooth
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                proxy.scrollTo(monthStart, anchor: .center)
+                            }
+                        }
+                    }
+                }
                 
                 if let date = selectedDate {
                     daySessionsSection(for: date)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .move(edge: .bottom).combined(with: .opacity)
+                        ))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
+            .animation(AppTheme.smoothSpring, value: selectedDate)
             .navigationTitle("Calendar")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Calendar")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingAddSession = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAddSession) { AddSessionView() }
-        }
-    }
-    
-    private var monthNavigation: some View {
-        HStack {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth) ?? displayMonth
-                }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 44, height: 44)
-            }
-            
-            Spacer()
-            
-            Text(monthYearString(from: displayMonth))
-                .font(.headline)
-            
-            Spacer()
-            
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    displayMonth = calendar.date(byAdding: .month, value: 1, to: displayMonth) ?? displayMonth
-                }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 44, height: 44)
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(AppTheme.cardBackground)
-    }
-    
-    private var weekdayHeaders: some View {
-        LazyVGrid(columns: columns, spacing: 4) {
-            ForEach(weekdaySymbols, id: \.self) { symbol in
-                Text(symbol)
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
-    
-    private var monthGrid: some View {
-        LazyVGrid(columns: columns, spacing: 4) {
-            ForEach(Array(daysInMonth().enumerated()), id: \.offset) { _, date in
-                if let date = date {
-                    DayCell(
-                        date: date,
-                        isSelected: selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false,
-                        isToday: calendar.isDateInToday(date),
-                        sessions: sessionStore.sessions(on: date),
-                        isInDisplayMonth: calendar.isDate(date, equalTo: displayMonth, toGranularity: .month)
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedDate = date
+                    HStack(spacing: 12) {
+                        Button("Today") {
+                            let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))
+                            withAnimation(AppTheme.smoothSpring) {
+                                scrollPosition = month
+                            }
+                        }
+                        .font(.subheadline.weight(.medium))
+                        Button { showingAddSession = true } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(AppTheme.accent)
                         }
                     }
-                } else {
-                    Color.clear
-                        .frame(height: 44)
+                }
+            }
+            .sheet(isPresented: $showingAddSession) {
+                AddSessionView()
+                    .presentationDetents([.medium, .large])
+            }
+        }
+    }
+    
+    private func monthBlock(for monthStart: Date) -> some View {
+        let monthlyTotal = sessionStore.monthlyProfit(for: monthStart)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(monthYearString(from: monthStart))
+                    .font(.headline)
+                if monthlyTotal != 0 {
+                    Text(formatShortAmount(monthlyTotal))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(monthlyTotal >= 0 ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
+                        .padding(.leading, 8)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 4)
+            
+            LazyVGrid(columns: columns, spacing: 4) {
+                ForEach(weekdaySymbols, id: \.self) { symbol in
+                    Text(symbol)
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                ForEach(Array(daysInMonth(displayMonth: monthStart).enumerated()), id: \.offset) { _, date in
+                    if let date = date {
+                        DayCell(
+                            date: date,
+                            isSelected: selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false,
+                            isToday: calendar.isDateInToday(date),
+                            dailyProfit: sessionStore.dailyProfit(on: date),
+                            isInDisplayMonth: calendar.isDate(date, equalTo: monthStart, toGranularity: .month),
+                            currency: settingsStore.settings.currency,
+                            winColor: settingsStore.settings.profitLossColorScheme.winColor,
+                            lossColor: settingsStore.settings.profitLossColorScheme.lossColor
+                        ) {
+                            withAnimation(AppTheme.smoothSpring) {
+                                selectedDate = date
+                            }
+                        }
+                    } else {
+                        Color.clear
+                            .frame(height: 36)
+                    }
                 }
             }
         }
-        .padding(.horizontal)
+        .padding(12)
+        .background(AppTheme.cardBackground)
+        .cornerRadius(12)
     }
     
     @ViewBuilder
@@ -121,13 +175,15 @@ struct CalendarView: View {
         
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(date, style: .date)
+                Text("\(sessionsOnDay.count) Session\(sessionsOnDay.count == 1 ? "" : "s")")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(AppTheme.secondaryText)
+                    .foregroundStyle(.primary)
                 Spacer()
                 Button("Clear") {
-                    withAnimation { selectedDate = nil }
+                    withAnimation(AppTheme.smoothSpring) {
+                        selectedDate = nil
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(AppTheme.accent)
@@ -141,24 +197,33 @@ struct CalendarView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
             } else {
-                List {
-                    ForEach(sessionsOnDay) { session in
-                        NavigationLink { SessionDetailView(session: session) } label: {
-                            SessionRowView(
-                                session: session,
-                                displayNumber: sessionStore.displayNumber(for: session),
-                                currency: settingsStore.settings.currency
-                            )
+                let rowHeight: CGFloat = 76
+                let maxVisibleRows: CGFloat = 3
+                let sessionCount = sessionsOnDay.count
+                let contentHeight = rowHeight * CGFloat(min(sessionCount, Int(maxVisibleRows)))
+                
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(sessionsOnDay) { session in
+                            NavigationLink { SessionDetailView(session: session) } label: {
+                                SessionRowView(
+                                    session: session,
+                                    displayNumber: sessionStore.displayNumber(for: session),
+                                    currency: settingsStore.settings.currency
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-                .listStyle(.plain)
+                .frame(height: contentHeight)
             }
         }
         .padding(.top, 8)
         .background(AppTheme.cardBackground)
         .cornerRadius(12)
         .padding()
+        .animation(AppTheme.smoothSpring, value: sessionsOnDay.count)
     }
     
     private func monthYearString(from date: Date) -> String {
@@ -167,7 +232,13 @@ struct CalendarView: View {
         return formatter.string(from: date)
     }
     
-    private func daysInMonth() -> [Date?] {
+    private func formatShortAmount(_ amount: Double) -> String {
+        if amount == 0 { return "" }
+        let prefix = amount > 0 ? "+" : ""
+        return prefix + PokerSession.formatCompactCurrency(abs(amount), currency: settingsStore.settings.currency)
+    }
+    
+    private func daysInMonth(displayMonth: Date) -> [Date?] {
         guard let range = calendar.range(of: .day, in: .month, for: displayMonth),
               let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: displayMonth)) else {
             return []
@@ -186,7 +257,6 @@ struct CalendarView: View {
             } else {
                 let dayIndex = i - leadingBlanks
                 if dayIndex < range.count {
-                    let day = range.lowerBound + dayIndex
                     if let date = calendar.date(byAdding: .day, value: dayIndex, to: firstDay) {
                         days.append(date)
                     } else {
@@ -207,45 +277,69 @@ private struct DayCell: View {
     let date: Date
     let isSelected: Bool
     let isToday: Bool
-    let sessions: [PokerSession]
+    let dailyProfit: Double
     let isInDisplayMonth: Bool
+    let currency: String
+    let winColor: Color
+    let lossColor: Color
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Text("\(Calendar.current.component(.day, from: date))")
-                    .font(.system(size: 16, weight: isToday ? .bold : .medium))
-                    .foregroundStyle(foregroundColor)
+                    .font(.system(size: 15, weight: isToday ? .bold : .medium))
+                    .foregroundStyle(dateTextColor)
                 
-                if !sessions.isEmpty {
-                    HStack(spacing: 2) {
-                        ForEach(sessions.prefix(3)) { session in
-                            Circle()
-                                .fill(session.isWin ? Color.green : Color.red)
-                                .frame(width: 4, height: 4)
-                        }
-                    }
+                if dailyProfit != 0 {
+                    Text(formatDailyAmount(dailyProfit))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(amountTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
-            .frame(height: 44)
+            .frame(height: 40)
             .frame(maxWidth: .infinity)
-            .background(backgroundColor)
-            .cornerRadius(8)
+            .background(cellBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .animation(AppTheme.smoothSpring, value: isSelected)
+            .animation(AppTheme.smoothSpring, value: dailyProfit)
         }
         .buttonStyle(.plain)
     }
     
-    private var foregroundColor: Color {
-        if !isInDisplayMonth { return AppTheme.secondaryText.opacity(0.5) }
+    private func formatDailyAmount(_ amount: Double) -> String {
+        PokerSession.formatCompactCurrency(abs(amount), currency: currency)
+    }
+    
+    private var dateTextColor: Color {
+        if !isInDisplayMonth { return Color.secondary.opacity(0.6) }
         if isSelected { return .white }
         return .primary
     }
     
-    private var backgroundColor: Color {
-        if isSelected { return AppTheme.accent }
-        if isToday { return AppTheme.accent.opacity(0.2) }
-        return Color.clear
+    private var amountTextColor: Color {
+        if isSelected { return .white.opacity(0.9) }
+        if dailyProfit > 0 { return winColor }
+        return lossColor
+    }
+    
+    /// Apple-style: subtle tints for P/L, accent for selected
+    private var cellBackground: some View {
+        Group {
+            if isSelected {
+                AppTheme.accent
+            } else if dailyProfit > 0 {
+                winColor.opacity(0.15)
+            } else if dailyProfit < 0 {
+                lossColor.opacity(0.15)
+            } else if isToday {
+                AppTheme.accent.opacity(0.12)
+            } else {
+                Color.clear
+            }
+        }
     }
 }
 

@@ -38,12 +38,19 @@ struct SessionsListView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .animation(AppTheme.smoothSpring, value: sessionStore.filteredSessions.count)
                 }
                 
                 searchBar
             }
+            .animation(AppTheme.smoothSpring, value: sessionStore.filteredSessions.isEmpty)
             .navigationTitle("Sessions")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Sessions")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { showingAddSession = true } label: { Label("Add Session", systemImage: "plus") }
@@ -54,7 +61,10 @@ struct SessionsListView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddSession) { AddSessionView() }
+            .sheet(isPresented: $showingAddSession) {
+                AddSessionView()
+                    .presentationDetents([.medium, .large])
+            }
             .sheet(isPresented: $showingFilters) { FilterView() }
             .sheet(item: $sessionToEdit) { session in EditSessionView(session: session) }
         }
@@ -113,7 +123,12 @@ struct FilterView: View {
                 }
             }
             .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Filters")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Clear") {
                         gameType = nil

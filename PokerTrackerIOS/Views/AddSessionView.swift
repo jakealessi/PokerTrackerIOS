@@ -131,6 +131,10 @@ struct AddSessionView: View {
             .navigationTitle("Log Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Log Session")
+                        .font(.headline)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
