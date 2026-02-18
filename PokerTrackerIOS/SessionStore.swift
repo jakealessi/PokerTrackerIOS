@@ -264,6 +264,7 @@ class SessionStore: ObservableObject {
     }
     
     func deleteSession(_ session: PokerSession) {
+        SessionImageStore.delete(imageIds: session.imageIds)
         sessions.removeAll { $0.id == session.id }
     }
     

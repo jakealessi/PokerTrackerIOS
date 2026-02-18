@@ -29,6 +29,7 @@ struct EditSessionView: View {
     @State private var handNotes: String = ""
     @State private var startTime: Date? = nil
     @State private var endTime: Date? = nil
+    @State private var imageIds: [String] = []
     
     private let calendar = Calendar.current
     
@@ -164,6 +165,8 @@ struct EditSessionView: View {
                     TextField("Hand notes", text: $handNotes, axis: .vertical)
                         .lineLimit(3...6)
                 }
+                
+                ImageAttachmentsSection(imageIds: $imageIds, deleteOnRemove: false)
             }
             .navigationTitle("Edit Session")
             .navigationBarTitleDisplayMode(.inline)
@@ -236,6 +239,7 @@ struct EditSessionView: View {
         tournamentPosition = session.tournamentPosition.map { String($0) } ?? ""
         rebuys = session.rebuys.map { String($0) } ?? ""
         handNotes = session.handNotes ?? ""
+        imageIds = session.imageIds
     }
     
     private func save() {
@@ -256,6 +260,10 @@ struct EditSessionView: View {
         updated.tournamentPosition = Int(tournamentPosition)
         updated.rebuys = Int(rebuys)
         updated.handNotes = handNotes.isEmpty ? nil : handNotes
+        updated.imageIds = imageIds
+        // Delete image files that were removed during edit
+        let removedIds = Set(session.imageIds).subtracting(imageIds)
+        SessionImageStore.delete(imageIds: Array(removedIds))
         sessionStore.updateSession(updated)
         dismiss()
     }

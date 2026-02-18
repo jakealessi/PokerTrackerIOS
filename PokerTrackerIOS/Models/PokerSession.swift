@@ -23,6 +23,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var handNotes: String?
     var startTime: Date?
     var endTime: Date?
+    var imageIds: [String]
     
     init(
         id: UUID = UUID(),
@@ -41,7 +42,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
         rebuys: Int? = nil,
         handNotes: String? = nil,
         startTime: Date? = nil,
-        endTime: Date? = nil
+        endTime: Date? = nil,
+        imageIds: [String] = []
     ) {
         self.id = id
         self.sessionNumber = sessionNumber
@@ -60,6 +62,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.handNotes = handNotes
         self.startTime = startTime
         self.endTime = endTime
+        self.imageIds = imageIds
     }
     
     // Migration: if sessionNumber is missing from old data, default to 0
@@ -82,6 +85,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         handNotes = try c.decodeIfPresent(String.self, forKey: .handNotes)
         startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
         endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
+        imageIds = try c.decodeIfPresent([String].self, forKey: .imageIds) ?? []
     }
     
     var isWin: Bool { amount > 0 }

@@ -28,6 +28,7 @@ struct AddSessionView: View {
     @State private var handNotes: String = ""
     @State private var startTime: Date? = nil
     @State private var endTime: Date? = nil
+    @State private var imageIds: [String] = []
     
     private let calendar = Calendar.current
     
@@ -141,6 +142,8 @@ struct AddSessionView: View {
                     TextField("Notable hands", text: $handNotes, axis: .vertical)
                         .lineLimit(3...6)
                 }
+                
+                ImageAttachmentsSection(imageIds: $imageIds)
             }
             .navigationTitle("Log Session")
             .navigationBarTitleDisplayMode(.inline)
@@ -264,7 +267,8 @@ struct AddSessionView: View {
             rebuys: Int(rebuys),
             handNotes: handNotes.isEmpty ? nil : handNotes,
             startTime: startTime,
-            endTime: endTime
+            endTime: endTime,
+            imageIds: imageIds
         )
         sessionStore.addSession(session)
         dismiss()

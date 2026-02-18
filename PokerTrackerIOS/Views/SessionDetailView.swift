@@ -12,12 +12,16 @@ struct SessionDetailView: View {
     let session: PokerSession
     @State private var showingEdit = false
     @State private var showingDeleteConfirm = false
+    @State private var showingShareSheet = false
+    @State private var shareActivityItems: [Any] = []
+    @State private var fullScreenImageIndex: Int? = nil
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 amountCard
                 detailsSection
+                if !session.imageIds.isEmpty { imagesSection }
                 if !session.notes.isEmpty { notesSection(session.notes) }
                 if let handNotes = session.handNotes, !handNotes.isEmpty { handNotesSection(handNotes) }
             }
@@ -37,7 +41,10 @@ struct SessionDetailView: View {
                     } label: {
                         Label("Edit", systemImage: "pencil")
                     }
-                    ShareLink(item: sessionShareText, subject: Text("Poker Session"), message: Text(sessionShareText)) {
+                    Button {
+                        shareActivityItems = sessionShareItems
+                        showingShareSheet = true
+                    } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     Button(role: .destructive) {
@@ -53,6 +60,19 @@ struct SessionDetailView: View {
         }
         .sheet(isPresented: $showingEdit) {
             EditSessionView(session: session)
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            ActivitySheet(activityItems: shareActivityItems)
+        }
+        .fullScreenCover(item: Binding(
+            get: { fullScreenImageIndex.map { IndexWrapper(index: $0) } },
+            set: { fullScreenImageIndex = $0?.index }
+        )) { wrapper in
+            FullScreenPhotoViewer(
+                imageIds: session.imageIds,
+                selectedIndex: wrapper.index,
+                onDismiss: { fullScreenImageIndex = nil }
+            )
         }
         .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -199,6 +219,34 @@ struct SessionDetailView: View {
         }
     }
     
+    private var imagesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Photos")
+                .font(.headline)
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 100), spacing: 8)
+            ], spacing: 8) {
+                ForEach(Array(session.imageIds.enumerated()), id: \.element) { index, imageId in
+                    SessionImageView(imageId: imageId)
+                        .aspectRatio(1, contentMode: .fill)
+                        .frame(minHeight: 100)
+                        .clipped()
+                        .cornerRadius(12)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            fullScreenImageIndex = index
+                        }
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(AppTheme.cardBackground)
+        )
+    }
+    
     private func notesSection(_ notes: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Notes")
@@ -229,6 +277,11 @@ struct SessionDetailView: View {
         )
     }
     
+    private struct IndexWrapper: Identifiable {
+        let index: Int
+        var id: Int { index }
+    }
+    
     private var sessionShareText: String {
         var lines = [
             "\(session.displayVariantAbbreviation) \(session.gameType.abbreviation) • \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))",
@@ -243,7 +296,63 @@ struct SessionDetailView: View {
         }
         if let hours = session.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
         if let roi = session.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
+        if !session.notes.isEmpty { lines.append("Notes: \(session.notes)") }
+        if let handNotes = session.handNotes, !handNotes.isEmpty { lines.append("Hand Notes: \(handNotes)") }
         return lines.joined(separator: "\n")
+    }
+    
+    /// Text summary for sharing (no images)
+    private var sessionShareItems: [Any] {
+        [sessionShareText]
+    }
+}
+
+// MARK: - Full Screen Photo Viewer
+
+struct FullScreenPhotoViewer: View {
+    let imageIds: [String]
+    let selectedIndex: Int
+    let onDismiss: () -> Void
+    
+    @State private var currentIndex: Int
+    
+    init(imageIds: [String], selectedIndex: Int, onDismiss: @escaping () -> Void) {
+        self.imageIds = imageIds
+        self.selectedIndex = selectedIndex
+        self.onDismiss = onDismiss
+        _currentIndex = State(initialValue: selectedIndex)
+    }
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            TabView(selection: $currentIndex) {
+                ForEach(Array(imageIds.enumerated()), id: \.element) { index, imageId in
+                    SessionImageView(imageId: imageId)
+                        .aspectRatio(contentMode: .fit)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: imageIds.count > 1 ? .automatic : .never))
+            .ignoresSafeArea()
+            
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .shadow(color: .black.opacity(0.5), radius: 2)
+                    }
+                    .padding()
+                }
+                Spacer()
+            }
+        }
     }
 }
 
