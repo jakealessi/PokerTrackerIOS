@@ -9,7 +9,9 @@ import Charts
 struct AnalyticsView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
+    @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingDateRange = false
+    @State private var showingPaywall = false
     
     private var currency: String { settingsStore.settings.currency }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
@@ -23,23 +25,24 @@ struct AnalyticsView: View {
                         dateRangeBanner
                     }
                     summaryCards
-                    
-                    if sessionStore.profitOverTime.count >= 2 {
-                        profitLineChart
+
+                    if subscriptionStore.isSubscribed {
+                        if sessionStore.profitOverTime.count >= 2 {
+                            profitLineChart
+                        }
+                        if sessionStore.totalSessions > 0 {
+                            winLossChart
+                        }
+                        if sessionStore.monthlyProfit.count >= 2 {
+                            monthlyBarChart
+                        }
+                        if sessionStore.sessionsByVariant.count >= 2 {
+                            variantBreakdown
+                        }
+                    } else {
+                        chartsLockedSection
                     }
-                    
-                    if sessionStore.totalSessions > 0 {
-                        winLossChart
-                    }
-                    
-                    if sessionStore.monthlyProfit.count >= 2 {
-                        monthlyBarChart
-                    }
-                    
-                    if sessionStore.sessionsByVariant.count >= 2 {
-                        variantBreakdown
-                    }
-                    
+
                     detailStats
                 }
                 .padding()
@@ -66,9 +69,48 @@ struct AnalyticsView: View {
                 StatsDateRangeSheet()
                     .environmentObject(sessionStore)
             }
+            .sheet(isPresented: $showingPaywall) {
+                SubscriptionPaywallView(
+                    title: "Premium",
+                    subtitle: "Unlock all charts and unlimited AI Session Crafter."
+                )
+                .environmentObject(subscriptionStore)
+            }
         }
     }
-    
+
+    private var chartsLockedSection: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.line.uptrend.xyaxis.circle")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(AppTheme.accent.opacity(0.6))
+            Text("Charts are part of Premium")
+                .font(.title3)
+                .fontWeight(.semibold)
+            Text("Subscribe to see cumulative profit, win/loss, monthly results, and variant breakdown.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                showingPaywall = true
+            } label: {
+                Text("Unlock Premium — 1 Month Free")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(AppTheme.accent)
+                    .foregroundStyle(.white)
+                    .cornerRadius(AppTheme.smallCornerRadius)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.cardBackground)
+        .cornerRadius(AppTheme.cardCornerRadius)
+    }
+
     private var dateRangeBanner: some View {
         HStack {
             Image(systemName: "calendar.badge.clock")
@@ -481,4 +523,5 @@ struct StatsDateRangeSheet: View {
     AnalyticsView()
         .environmentObject(SessionStore())
         .environmentObject(SettingsStore())
+        .environmentObject(SubscriptionStore.shared)
 }

@@ -8,15 +8,22 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
+    @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingAddSession = false
+    @State private var showingPaywall = false
     @State private var chatMessages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isAILoading = false
     @State private var aiError: String?
     @FocusState private var inputFocused: Bool
+    @State private var aiTask: Task<Void, Never>?
     
     private var bankroll: Double {
         settingsStore.settings.startingBankroll + sessionStore.totalProfit
+    }
+
+    private var canUseAISessionCrafter: Bool {
+        subscriptionStore.isSubscribed || AISessionCrafterUsage.hasFreeUsesRemaining
     }
     
     var body: some View {
@@ -50,6 +57,16 @@ struct DashboardView: View {
             .sheet(isPresented: $showingAddSession) {
                 AddSessionView()
                     .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showingPaywall) {
+                SubscriptionPaywallView(
+                    title: "Premium",
+                    subtitle: "Unlock unlimited AI Session Crafter and all stats charts."
+                )
+                .environmentObject(subscriptionStore)
+            }
+            .onDisappear {
+                aiTask?.cancel()
             }
         }
     }
@@ -196,7 +213,23 @@ struct DashboardView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 4)
             }
-            
+
+            if !subscriptionStore.isSubscribed && AISessionCrafterUsage.usesRemaining < AISessionCrafterUsage.freeUseLimit {
+                HStack {
+                    Text("\(AISessionCrafterUsage.usesRemaining) of \(AISessionCrafterUsage.freeUseLimit) free AI uses left")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if AISessionCrafterUsage.usesRemaining == 0 {
+                        Button("Unlock unlimited") { showingPaywall = true }
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+            }
+
             Divider()
             
             HStack(spacing: 10) {
@@ -254,17 +287,25 @@ struct DashboardView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        
+
+        if !canUseAISessionCrafter {
+            showingPaywall = true
+            return
+        }
+
         withAnimation(AppTheme.smoothSpring) {
             chatMessages.append(ChatMessage(role: .user, text: text))
         }
         inputText = ""
         aiError = nil
         
-        Task { await processWithAI() }
+        aiTask?.cancel()
+        aiTask = Task { await processWithAI() }
     }
     
     private func processWithAI() async {
+        defer { isAILoading = false }
+        guard !Task.isCancelled else { return }
         isAILoading = true
         
         let context = AISessionService.buildSessionContext(
@@ -280,13 +321,19 @@ struct DashboardView: View {
                 existingSessions: context
             )
             
+            guard !Task.isCancelled else { return }
             switch result {
             case .followUp(let question):
+                guard !Task.isCancelled else { return }
                 withAnimation(AppTheme.smoothSpring) {
                     chatMessages.append(ChatMessage(role: .assistant, text: question))
                 }
                 
             case .complete(let parsed):
+                guard !Task.isCancelled else { return }
+                if !subscriptionStore.isSubscribed {
+                    AISessionCrafterUsage.consumeOne()
+                }
                 let session = PokerSession(
                     amount: parsed.amount,
                     date: parsed.date ?? Date(),
@@ -312,7 +359,11 @@ struct DashboardView: View {
                 if settingsStore.settings.hapticFeedback { HapticManager.success() }
                 
             case .update(let sessionNumber, let fields):
+                guard !Task.isCancelled else { return }
                 if var existing = sessionStore.session(byNumber: sessionNumber) {
+                    if !subscriptionStore.isSubscribed {
+                        AISessionCrafterUsage.consumeOne()
+                    }
                     existing = AISessionService.applyUpdate(to: existing, fields: fields)
                     sessionStore.updateSession(existing)
                     
@@ -334,11 +385,10 @@ struct DashboardView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled else { return }
             aiError = error.localizedDescription
             if settingsStore.settings.hapticFeedback { HapticManager.notification(.error) }
         }
-        
-        isAILoading = false
     }
     
     private func buildSummary(_ p: ParsedSession, sessionNumber: Int) -> String {
@@ -387,4 +437,5 @@ struct TypingIndicator: View {
     DashboardView()
         .environmentObject(SessionStore())
         .environmentObject(SettingsStore())
+        .environmentObject(SubscriptionStore.shared)
 }

@@ -114,20 +114,6 @@ struct SettingsView: View {
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
             }
-            
-            HStack {
-                Text("Low Bankroll Alert")
-                TextField("Optional", value: Binding(
-                    get: { settingsStore.settings.lowBankrollAlert ?? 0 },
-                    set: { val in
-                        var s = settingsStore.settings
-                        s.lowBankrollAlert = val > 0 ? val : nil
-                        settingsStore.settings = s
-                    }
-                ), format: .number)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-            }
         } header: {
             Text("Bankroll")
         }
@@ -213,6 +199,16 @@ struct SettingsView: View {
                 Spacer()
                 Text("1.0")
                     .foregroundStyle(AppTheme.secondaryText)
+            }
+            
+            Link(destination: AppURLs.privacyPolicy) {
+                Label("Privacy Policy", systemImage: "hand.raised")
+                    .foregroundStyle(AppTheme.accent)
+            }
+            
+            Link(destination: AppURLs.support) {
+                Label("Support", systemImage: "questionmark.circle")
+                    .foregroundStyle(AppTheme.accent)
             }
         } header: {
             Text("About")

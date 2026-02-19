@@ -1,53 +1,50 @@
-# Poker Tracker iOS
+# Poker Tracker AI
 
-A comprehensive SwiftUI iOS app for tracking poker wins, losses, and performance.
+A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions with AI assistance, view stats and charts, and sync data across devices via iCloud.
 
 ## Features
 
 ### Session Tracking
 - **Log sessions** – Record wins/losses with amount, date, game type
 - **Hours played** – Track session duration for hourly rate
-- **Stakes & venue** – Record stakes (e.g. $1/$2) and location
+- **Stakes & venue** – Record stakes (e.g. $1/$2) and location, with one-tap presets
 - **Tournament details** – Buy-in, cash out, position, rebuys for tournaments
 - **Hand notes** – Record notable hands for review
+- **Photos** – Attach images to sessions
 - **Game types** – Cash, Tournament, Sit & Go, Home Game, Online
 
-### Bankroll Management
+### AI Session Logging
+- **Natural language input** – Type "Won $200 at 1/2 NLH" or "Update session #3 stakes to 2/5"
+- **20 free uses** – Try AI session crafting before Premium
+- **Gemini or OpenAI** – Use your own API key for more powerful models
+
+### Bankroll & Analytics
 - **Starting bankroll** – Set your initial bankroll
 - **Live bankroll** – Auto-calculated (starting + total P/L)
-- **Low bankroll alert** – Get notified when bankroll drops below a threshold
-
-### Analytics
-- **Profit over time chart** – Visualize your running profit
-- **Monthly profit chart** – See profit by month
-- **Sessions by game type** – Bar chart breakdown
-- **Key metrics** – Win rate, average session, best streak
-- **Hourly rate** – Track $/hr when hours are logged
-- **Tournament ROI** – Return on investment for tournaments
-
-### Goals & Achievements
-- **Custom goals** – Profit targets, session counts, win streaks
-- **Achievements** – First Blood, Grinder, Hot Streak, High Roller, and more
-- **Progress tracking** – See how close you are to each goal
+- **Profit over time chart** – Cumulative profit (Premium)
+- **Monthly profit chart** – Profit by month (Premium)
+- **Win/loss breakdown** – Donut chart (Premium)
+- **By variant** – Sessions and profit by game variant (Premium)
+- **Key metrics** – Win rate, average session, best streak, hourly rate, tournament ROI
 
 ### Organization
-- **Search** – Find sessions by notes, venue, or stakes
+- **Search** – Find sessions by notes, venue, stakes, or variant
 - **Filters** – By game type and date range
+- **Calendar** – View sessions by day with daily profit
 - **Swipe actions** – Swipe to edit or delete (with confirmation)
 - **Edit sessions** – Update any session after logging
 - **Share session** – Share a session summary via Messages, Mail, etc.
 - **Export to CSV** – Share your data for backup or analysis
 
-### Quick Entry
-- **Quick Add** – Log amount + win/loss in seconds (uses last session defaults)
-- **Full Log** – Complete form with all details
-- **Stakes chips** – One-tap stakes selection ($1/$2, $2/$5, etc.)
-- **Amount toolbar** – +25, +50, +100 quick-add buttons above keyboard
+### Premium Subscription
+- **Unlimited AI uses** – No cap on AI session crafting
+- **All charts** – Full access to stats and analytics
+- **$2.99/month** – 1 month free trial
 
 ### UX
 - **Onboarding** – Welcome flow for first-time users
 - **Haptic feedback** – Tactile response on key actions
-- **Pull to refresh** – Refresh session lists
+- **iCloud sync** – Data syncs across devices when signed in with the same Apple ID
 - **This month** – Dashboard stat for current month profit
 
 ## API Key Setup (keeps your key off GitHub)
@@ -60,7 +57,7 @@ Your API key stays local and is never pushed to GitHub.
 3. `APIKeys.plist` is in `.gitignore`—it will not be committed when you push  
 
 **Option 2: In-app Settings**  
-Add your key in the app’s Settings screen. It’s stored on the device only.
+Add your key in the app's Settings screen. It's stored on the device only.
 
 - Never hardcode keys in Swift files  
 - If a key is exposed, revoke it at aistudio.google.com or platform.openai.com
@@ -75,7 +72,8 @@ Add your key in the app’s Settings screen. It’s stored on the device only.
 
 1. Open `PokerTrackerIOS.xcodeproj` in Xcode
 2. Select your development team in Signing & Capabilities
-3. Build and run on a simulator or device (⌘R)
+3. Enable iCloud capability (Key-Value and Documents)
+4. Build and run on a simulator or device (⌘R)
 
 ## Project Structure
 
@@ -85,10 +83,10 @@ PokerTrackerIOS/
 ├── ContentView.swift
 ├── SessionStore.swift
 ├── SettingsStore.swift
+├── SubscriptionStore.swift
 ├── Models/
 │   ├── PokerSession.swift
-│   ├── AppSettings.swift
-│   └── Goal.swift
+│   └── AppSettings.swift
 ├── Views/
 │   ├── MainTabView.swift
 │   ├── DashboardView.swift
@@ -96,23 +94,37 @@ PokerTrackerIOS/
 │   ├── SessionDetailView.swift
 │   ├── EditSessionView.swift
 │   ├── AddSessionView.swift
-│   ├── QuickAddView.swift
 │   ├── OnboardingView.swift
 │   ├── AnalyticsView.swift
-│   ├── GoalsView.swift
+│   ├── CalendarView.swift
+│   ├── SubscriptionPaywallView.swift
 │   └── SettingsView.swift
 ├── Components/
-│   ├── StatCard.swift
-│   └── SessionRowView.swift
+│   ├── SessionRowView.swift
+│   └── ImageAttachmentsSection.swift
+├── Services/
+│   ├── AISessionService.swift
+│   └── SessionParserService.swift
 ├── Utilities/
-│   └── HapticManager.swift
+│   ├── AppTheme.swift
+│   ├── HapticManager.swift
+│   ├── APIKeysLoader.swift
+│   ├── AppURLs.swift
+│   ├── AISessionCrafterUsage.swift
+│   ├── ActivitySheet.swift
+│   ├── SessionImageStore.swift
+│   ├── VenueCleaner.swift
+│   └── iCloudStore.swift
+├── website/
+│   ├── privacy-policy.html
+│   └── support.html
 └── Assets.xcassets
 ```
 
 ## Usage
 
-1. **Dashboard** – View bankroll, stats, and recent sessions. Tap + for Quick Add or Full Log.
-2. **Sessions** – Browse all sessions, search, filter. Swipe to edit/delete, tap for details.
-3. **Analytics** – Charts and key metrics.
-4. **Goals** – Set goals and unlock achievements.
-5. **Settings** – Configure bankroll, currency, and export data.
+1. **Home** – View bankroll, stats, and log sessions via AI chat or tap + for the full form
+2. **Stats** – Summary cards, charts (Premium), and key metrics
+3. **Calendar** – Browse sessions by month and day
+4. **Sessions** – Search, filter, swipe to edit/delete, tap for details
+5. **Settings** – Bankroll, currency, game defaults, AI keys, export, privacy policy, support

@@ -35,4 +35,5 @@ struct MainTabView: View {
     MainTabView()
         .environmentObject(SessionStore())
         .environmentObject(SettingsStore())
+        .environmentObject(SubscriptionStore.shared)
 }

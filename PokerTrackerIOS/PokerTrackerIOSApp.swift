@@ -20,6 +20,7 @@ struct PokerTrackerIOSApp: App {
                         MainTabView()
                             .environmentObject(sessionStore)
                             .environmentObject(settingsStore)
+                            .environmentObject(SubscriptionStore.shared)
                     } else {
                         OnboardingView(isComplete: Binding(
                             get: { settingsStore.settings.hasSeenOnboarding },

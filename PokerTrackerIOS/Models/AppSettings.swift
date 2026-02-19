@@ -35,7 +35,6 @@ enum ProfitLossColorScheme: String, Codable, CaseIterable {
 struct AppSettings: Codable {
     var currency: String
     var startingBankroll: Double
-    var lowBankrollAlert: Double?
     var defaultGameType: GameType
     var defaultVariant: String?
     var defaultStakes: String?
@@ -47,7 +46,7 @@ struct AppSettings: Codable {
     var profitLossColorScheme: ProfitLossColorScheme
 
     enum CodingKeys: String, CodingKey {
-        case currency, startingBankroll, lowBankrollAlert, defaultGameType
+        case currency, startingBankroll, defaultGameType
         case defaultVariant, defaultStakes, showHourlyRate, hapticFeedback
         case hasSeenOnboarding, geminiAPIKey, openAIAPIKey, profitLossColorScheme
     }
@@ -55,7 +54,6 @@ struct AppSettings: Codable {
     init(
         currency: String,
         startingBankroll: Double,
-        lowBankrollAlert: Double?,
         defaultGameType: GameType,
         defaultVariant: String?,
         defaultStakes: String?,
@@ -68,7 +66,6 @@ struct AppSettings: Codable {
     ) {
         self.currency = currency
         self.startingBankroll = startingBankroll
-        self.lowBankrollAlert = lowBankrollAlert
         self.defaultGameType = defaultGameType
         self.defaultVariant = defaultVariant
         self.defaultStakes = defaultStakes
@@ -83,7 +80,6 @@ struct AppSettings: Codable {
     static let `default` = AppSettings(
         currency: "USD",
         startingBankroll: 0,
-        lowBankrollAlert: nil,
         defaultGameType: .cash,
         defaultVariant: PokerVariant.noLimitHoldem.rawValue,
         defaultStakes: nil,
@@ -99,7 +95,6 @@ struct AppSettings: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         currency = try c.decode(String.self, forKey: .currency)
         startingBankroll = try c.decode(Double.self, forKey: .startingBankroll)
-        lowBankrollAlert = try c.decodeIfPresent(Double.self, forKey: .lowBankrollAlert)
         defaultGameType = try c.decode(GameType.self, forKey: .defaultGameType)
         defaultVariant = try c.decodeIfPresent(String.self, forKey: .defaultVariant)
         defaultStakes = try c.decodeIfPresent(String.self, forKey: .defaultStakes)
@@ -115,7 +110,6 @@ struct AppSettings: Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(currency, forKey: .currency)
         try c.encode(startingBankroll, forKey: .startingBankroll)
-        try c.encodeIfPresent(lowBankrollAlert, forKey: .lowBankrollAlert)
         try c.encode(defaultGameType, forKey: .defaultGameType)
         try c.encodeIfPresent(defaultVariant, forKey: .defaultVariant)
         try c.encodeIfPresent(defaultStakes, forKey: .defaultStakes)
