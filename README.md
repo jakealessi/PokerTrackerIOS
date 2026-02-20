@@ -1,4 +1,4 @@
-# Poker Tracker AI
+# Poker Bankroll AI
 
 A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions with AI assistance, view stats and charts, and sync data across devices via iCloud.
 

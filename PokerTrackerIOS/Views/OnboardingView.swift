@@ -14,7 +14,7 @@ struct OnboardingView: View {
             Image(systemName: "suit.spade.fill")
                 .font(.system(size: 64))
                 .foregroundStyle(AppTheme.accent)
-            Text("Poker Tracker")
+            Text("Poker Bankroll AI")
                 .font(.title)
                 .fontWeight(.bold)
             Text("Log sessions, track your bankroll, and view stats.")

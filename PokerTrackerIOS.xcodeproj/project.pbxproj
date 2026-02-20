@@ -447,7 +447,8 @@
 				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poker Tracker uses your photos to attach images to your poker sessions.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Poker Bankroll AI";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poker Bankroll AI uses your photos to attach images to your poker sessions.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
@@ -475,7 +476,8 @@
 				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poker Tracker uses your photos to attach images to your poker sessions.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Poker Bankroll AI";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poker Bankroll AI uses your photos to attach images to your poker sessions.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;

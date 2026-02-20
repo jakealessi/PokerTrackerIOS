@@ -40,11 +40,11 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
-            .navigationTitle("Poker Tracker")
+            .navigationTitle("Poker Bankroll AI")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("Poker Tracker")
+                    Text("Poker Bankroll AI")
                         .font(.headline)
                 }
                 ToolbarItem(placement: .primaryAction) {
