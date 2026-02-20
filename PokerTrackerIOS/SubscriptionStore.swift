@@ -2,7 +2,7 @@
 //  SubscriptionStore.swift
 //  PokerTrackerIOS
 //
-//  StoreKit 2 subscription: $2.99/month with 1 month free trial (Premium).
+//  StoreKit 2 subscription: $4.99/month with 1 month free trial (Premium).
 //  Create product "pro_monthly" (or full ID) in App Store Connect with introductory offer.
 //
 
@@ -117,7 +117,7 @@ final class SubscriptionStore: ObservableObject {
         products.first { $0.id == Self.proMonthlyProductID }
     }
 
-    /// Human-readable subscription summary (e.g. "$2.99/month, 1 month free")
+    /// Human-readable subscription summary (e.g. "$4.99/month, 1 month free")
     var subscriptionDisplayPrice: String? {
         guard let p = proMonthlyProduct else { return nil }
         var text = p.displayPrice + "/month"

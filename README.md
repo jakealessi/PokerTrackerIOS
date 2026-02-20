@@ -39,7 +39,7 @@ A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions
 ### Premium Subscription
 - **Unlimited AI uses** – No cap on AI session crafting
 - **All charts** – Full access to stats and analytics
-- **$2.99/month** – 1 month free trial
+- **$4.99/month** – 1 month free trial
 
 ### UX
 - **Onboarding** – Welcome flow for first-time users

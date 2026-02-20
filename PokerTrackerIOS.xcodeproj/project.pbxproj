@@ -30,8 +30,8 @@
 		A1000027 /* APIKeysLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000027 /* APIKeysLoader.swift */; };
 		A1000028 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000028 /* AppTheme.swift */; };
 		A1000029 /* SessionParserService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000029 /* SessionParserService.swift */; };
-		A1000032 /* VenueCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000032 /* VenueCleaner.swift */; };
 		A1000030 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030 /* CalendarView.swift */; };
+		A1000032 /* VenueCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000032 /* VenueCleaner.swift */; };
 		A1000033 /* SessionImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000033 /* SessionImageStore.swift */; };
 		A1000034 /* ImageAttachmentsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000034 /* ImageAttachmentsSection.swift */; };
 		A1000035 /* ActivitySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000035 /* ActivitySheet.swift */; };

@@ -28,9 +28,6 @@ Secrets.xcconfig
 .env.local
 .env.*.local
 
-# AI service contains hardcoded API key
-PokerTrackerIOS/Services/AISessionService.swift
-
 # Swift Package Manager
 .swiftpm/
 Packages/
