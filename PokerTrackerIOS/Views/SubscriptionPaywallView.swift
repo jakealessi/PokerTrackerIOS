@@ -102,6 +102,16 @@ struct SubscriptionPaywallView: View {
                 .foregroundStyle(AppTheme.accent)
                 .disabled(subscriptionStore.isLoading)
 
+                VStack(spacing: 8) {
+                    Link("Privacy Policy", destination: AppURLs.privacyPolicy)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Link("Terms of Use (EULA)", destination: AppURLs.termsOfUse)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 8)
+
                 Spacer()
             }
             .frame(maxWidth: .infinity)
