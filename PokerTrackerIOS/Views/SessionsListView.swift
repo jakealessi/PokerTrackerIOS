@@ -10,7 +10,9 @@ struct SessionsListView: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @State private var showingAddSession = false
     @State private var showingFilters = false
+    @State private var showingSettings = false
     @State private var sessionToEdit: PokerSession?
+    @State private var sessionToDelete: PokerSession?
     
     var body: some View {
         NavigationStack {
@@ -25,8 +27,12 @@ struct SessionsListView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
-                                    sessionStore.deleteSession(session)
-                                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                                    if settingsStore.settings.confirmBeforeDelete {
+                                        sessionToDelete = session
+                                    } else {
+                                        sessionStore.deleteSession(session)
+                                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                                    }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -49,6 +55,11 @@ struct SessionsListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     Text("Sessions")
                         .font(.headline)
@@ -68,7 +79,25 @@ struct SessionsListView: View {
                     .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showingFilters) { FilterView() }
+            .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(item: $sessionToEdit) { session in EditSessionView(session: session) }
+            .alert("Delete Session?", isPresented: Binding(
+                get: { sessionToDelete != nil },
+                set: { if !$0 { sessionToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) {
+                    sessionToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let session = sessionToDelete {
+                        sessionStore.deleteSession(session)
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                    }
+                    sessionToDelete = nil
+                }
+            } message: {
+                Text("This cannot be undone.")
+            }
         }
     }
     
@@ -143,9 +172,16 @@ struct FilterView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
+                        let finalFrom = useDateFrom ? dateFrom : nil
+                        let finalTo = useDateTo ? dateTo : nil
+                        if let from = finalFrom, let to = finalTo, from > to {
+                            sessionStore.filterDateFrom = to
+                            sessionStore.filterDateTo = from
+                        } else {
+                            sessionStore.filterDateFrom = finalFrom
+                            sessionStore.filterDateTo = finalTo
+                        }
                         sessionStore.filterGameType = gameType
-                        sessionStore.filterDateFrom = useDateFrom ? dateFrom : nil
-                        sessionStore.filterDateTo = useDateTo ? dateTo : nil
                         dismiss()
                     }
                 }

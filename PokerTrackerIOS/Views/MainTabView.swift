@@ -16,14 +16,14 @@ struct MainTabView: View {
             DashboardView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(1)
+            OddsCalculatorView()
+                .tabItem { Label("Odds", systemImage: "percent") }
+                .tag(2)
             CalendarView()
                 .tabItem { Label("Calendar", systemImage: "calendar") }
-                .tag(2)
+                .tag(3)
             SessionsListView()
                 .tabItem { Label("Sessions", systemImage: "list.bullet") }
-                .tag(3)
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(4)
         }
         .tint(AppTheme.accent)

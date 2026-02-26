@@ -10,6 +10,7 @@ struct CalendarView: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @State private var selectedDate: Date?
     @State private var showingAddSession = false
+    @State private var showingSettings = false
     @State private var scrollPosition: Date?
     @State private var didInitialCenter = false
     
@@ -91,6 +92,11 @@ struct CalendarView: View {
             .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     Text("Calendar")
                         .font(.headline)
@@ -115,6 +121,9 @@ struct CalendarView: View {
             .sheet(isPresented: $showingAddSession) {
                 AddSessionView()
                     .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
         }
     }
@@ -198,28 +207,29 @@ struct CalendarView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
             } else {
-                let rowHeight: CGFloat = 76
-                let maxVisibleRows: CGFloat = 3
-                let sessionCount = sessionsOnDay.count
-                let contentHeight = rowHeight * CGFloat(min(sessionCount, Int(maxVisibleRows)))
-                
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(sessionsOnDay) { session in
-                            NavigationLink { SessionDetailView(session: session) } label: {
-                                SessionRowView(
-                                    session: session,
-                                    displayNumber: sessionStore.displayNumber(for: session),
-                                    currency: settingsStore.settings.currency
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .transition(.opacity.combined(with: .move(edge: .leading)))
+                let rows = LazyVStack(spacing: 0) {
+                    ForEach(sessionsOnDay) { session in
+                        NavigationLink { SessionDetailView(session: session) } label: {
+                            SessionRowView(
+                                session: session,
+                                displayNumber: sessionStore.displayNumber(for: session),
+                                currency: settingsStore.settings.currency
+                            )
                         }
+                        .buttonStyle(.plain)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
                     }
-                    .animation(AppTheme.smoothSpring, value: sessionsOnDay.map(\.id))
                 }
-                .frame(height: contentHeight)
+                .animation(AppTheme.smoothSpring, value: sessionsOnDay.map(\.id))
+
+                if sessionsOnDay.count <= 3 {
+                    rows
+                } else {
+                    ScrollView {
+                        rows
+                    }
+                    .frame(maxHeight: 240)
+                }
             }
         }
         .padding(.top, 8)
@@ -247,7 +257,8 @@ struct CalendarView: View {
         }
         
         let firstWeekday = calendar.component(.weekday, from: firstDay)
-        let leadingBlanks = firstWeekday - calendar.firstWeekday
+        // Keep leading blanks in [0, 6] regardless of locale first weekday.
+        let leadingBlanks = (firstWeekday - calendar.firstWeekday + 7) % 7
         let totalCells = leadingBlanks + range.count
         let rows = (totalCells + 6) / 7
         let cellCount = rows * 7

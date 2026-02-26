@@ -21,20 +21,30 @@ struct SessionRowView: View {
         }
         return parts.joined(separator: " · ")
     }
+
+    private var amountText: String {
+        if settingsStore.settings.useCompactCurrency {
+            let prefix = session.amount > 0 ? "+" : (session.amount < 0 ? "-" : "")
+            return prefix + PokerSession.formatCompactCurrency(abs(session.amount), currency: currency)
+        }
+        return PokerSession.formatCurrency(session.amount, currency: currency)
+    }
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // Session number badge (dynamic: earliest = #1)
-            Text("#\(displayNumber ?? 0)")
-                .font(.caption2)
-                .fontWeight(.bold)
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(session.isWin ? winColor : lossColor)
-                .clipShape(Circle())
+            if settingsStore.settings.showSessionNumbers {
+                // Session number badge (dynamic: earliest = #1)
+                Text("#\(displayNumber ?? 0)")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(session.isWin ? winColor : lossColor)
+                    .clipShape(Circle())
+            }
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(PokerSession.formatCurrency(session.amount, currency: currency))
+                Text(amountText)
                     .font(.headline)
                     .foregroundStyle(session.isWin ? winColor : lossColor)
                 

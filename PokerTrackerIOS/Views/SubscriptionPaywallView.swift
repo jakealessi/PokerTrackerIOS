@@ -12,7 +12,7 @@ struct SubscriptionPaywallView: View {
     @State private var activeTask: Task<Void, Never>?
 
     var title: String = "Premium"
-    var subtitle: String? = "Unlock all charts and unlimited AI Session Crafter."
+    var subtitle: String? = "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
 
     var body: some View {
         NavigationStack {

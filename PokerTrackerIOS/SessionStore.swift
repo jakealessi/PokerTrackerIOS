@@ -7,6 +7,23 @@ import Foundation
 import SwiftUI
 
 class SessionStore: ObservableObject {
+    struct SessionsBackup: Codable {
+        let version: Int
+        let exportedAt: Date
+        let sessions: [PokerSession]
+    }
+
+    enum BackupError: LocalizedError {
+        case invalidFormat
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidFormat:
+                return "The selected file is not a valid Poker Tracker backup."
+            }
+        }
+    }
+
     @Published var sessions: [PokerSession] = [] {
         didSet {
             saveSessions()
@@ -26,17 +43,21 @@ class SessionStore: ObservableObject {
     }
     
     // MARK: - Filtered Sessions
-    /// Filtered sessions sorted by date ascending (earliest first) so display numbers align: #1 at top, #N at bottom
+    /// Filtered sessions sorted by date descending (most recent first).
     var filteredSessions: [PokerSession] {
         var result = sessions
+        let calendar = Calendar.current
         if let type = filterGameType {
             result = result.filter { $0.gameType == type }
         }
         if let from = filterDateFrom {
-            result = result.filter { $0.date >= from }
+            let startOfDay = calendar.startOfDay(for: from)
+            result = result.filter { $0.date >= startOfDay }
         }
         if let to = filterDateTo {
-            result = result.filter { $0.date <= to }
+            let startOfDay = calendar.startOfDay(for: to)
+            let nextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? to
+            result = result.filter { $0.date < nextDay }
         }
         if !searchText.isEmpty {
             let search = searchText.lowercased()
@@ -109,6 +130,45 @@ class SessionStore: ObservableObject {
         return filteredSessions.sorted { $0.date < $1.date }.map { session in
             running += session.amount
             return (session.date, running)
+        }
+    }
+
+    /// Peak-to-trough bankroll drawdown over time (0 = at peak, negative = below peak)
+    var drawdownOverTime: [(Date, Double)] {
+        var running: Double = 0
+        var peak: Double = 0
+        return filteredSessions.sorted { $0.date < $1.date }.map { session in
+            running += session.amount
+            peak = max(peak, running)
+            return (session.date, running - peak)
+        }
+    }
+
+    /// Weekday performance in locale order (includes empty weekdays with 0 sessions).
+    /// average is average P/L per session for that weekday.
+    var weekdayPerformance: [(label: String, weekday: Int, average: Double, sessions: Int, total: Double)] {
+        let cal = Calendar.current
+        let grouped = Dictionary(grouping: filteredSessions) { session in
+            cal.component(.weekday, from: session.date) // 1...7
+        }
+
+        let symbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let orderedWeekdays = (0..<7).map { offset in
+            ((cal.firstWeekday - 1 + offset) % 7) + 1
+        }
+
+        return orderedWeekdays.map { weekday in
+            let sessions = grouped[weekday] ?? []
+            let total = sessions.reduce(0) { $0 + $1.amount }
+            let count = sessions.count
+            let avg = count > 0 ? total / Double(count) : 0
+            return (
+                label: symbols[weekday - 1],
+                weekday: weekday,
+                average: avg,
+                sessions: count,
+                total: total
+            )
         }
     }
     
@@ -275,6 +335,14 @@ class SessionStore: ObservableObject {
     
     // MARK: - Export
     func exportCSV(currency: String = "USD") -> String {
+        func escapeCSV(_ value: String) -> String {
+            if value.contains(",") || value.contains("\"") || value.contains("\n") {
+                let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return value
+        }
+
         var csv = "Date,Game Format,Variant,Amount,Hours,Stakes,Venue,Notes\n"
         for s in filteredSessions.sorted(by: { $0.date > $1.date }) {
             let date = ISO8601DateFormatter().string(from: s.date)
@@ -283,10 +351,48 @@ class SessionStore: ObservableObject {
             let stakes = s.stakes ?? ""
             let venue = s.venue ?? ""
             let variant = s.displayVariant
-            let notes = (s.notes + (s.handNotes ?? "")).replacingOccurrences(of: ",", with: ";")
-            csv += "\(date),\(s.gameType.rawValue),\(variant),\(amount),\(hours),\(stakes),\(venue),\(notes)\n"
+            let notes = s.notes + (s.handNotes ?? "")
+            let row = [
+                escapeCSV(date),
+                escapeCSV(s.gameType.rawValue),
+                escapeCSV(variant),
+                escapeCSV(amount),
+                escapeCSV(hours),
+                escapeCSV(stakes),
+                escapeCSV(venue),
+                escapeCSV(notes)
+            ].joined(separator: ",")
+            csv += "\(row)\n"
         }
         return csv
+    }
+
+    func exportBackupJSON() -> String? {
+        let backup = SessionsBackup(version: 1, exportedAt: Date(), sessions: sessions)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(backup) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    @discardableResult
+    func restoreFromBackupJSON(_ data: Data) throws -> Int {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        if let backup = try? decoder.decode(SessionsBackup.self, from: data) {
+            sessions = backup.sessions.sorted { $0.date > $1.date }
+            return sessions.count
+        }
+
+        // Backward compatibility: allow restoring raw [PokerSession] files.
+        if let restored = try? decoder.decode([PokerSession].self, from: data) {
+            sessions = restored.sorted { $0.date > $1.date }
+            return sessions.count
+        }
+
+        throw BackupError.invalidFormat
     }
     
     private func loadSessions() {

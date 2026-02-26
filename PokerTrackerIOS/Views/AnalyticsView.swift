@@ -12,6 +12,7 @@ struct AnalyticsView: View {
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingDateRange = false
     @State private var showingPaywall = false
+    @State private var showingSettings = false
     
     private var currency: String { settingsStore.settings.currency }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
@@ -30,11 +31,17 @@ struct AnalyticsView: View {
                         if sessionStore.profitOverTime.count >= 2 {
                             profitLineChart
                         }
+                        if sessionStore.drawdownOverTime.count >= 2 {
+                            drawdownChart
+                        }
                         if sessionStore.totalSessions > 0 {
                             winLossChart
                         }
                         if sessionStore.monthlyProfit.count >= 2 {
                             monthlyBarChart
+                        }
+                        if sessionStore.weekdayPerformance.filter({ $0.sessions > 0 }).count >= 2 {
+                            weekdayPerformanceChart
                         }
                         if sessionStore.sessionsByVariant.count >= 2 {
                             variantBreakdown
@@ -72,9 +79,12 @@ struct AnalyticsView: View {
             .sheet(isPresented: $showingPaywall) {
                 SubscriptionPaywallView(
                     title: "Premium",
-                    subtitle: "Unlock all charts and unlimited AI Session Crafter."
+                    subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
         }
     }
@@ -298,6 +308,67 @@ struct AnalyticsView: View {
         .background(AppTheme.cardBackground)
         .cornerRadius(10)
     }
+
+    // MARK: - Drawdown Chart
+
+    private var drawdownChart: some View {
+        let data = sessionStore.drawdownOverTime
+        let minDrawdown = data.map(\.1).min() ?? 0
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Drawdown Over Time")
+                .font(.headline)
+
+            Chart {
+                ForEach(Array(data.enumerated()), id: \.offset) { _, point in
+                    AreaMark(
+                        x: .value("Date", point.0, unit: .day),
+                        y: .value("Drawdown", point.1)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [lossColor.opacity(0.3), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.stepEnd)
+
+                    LineMark(
+                        x: .value("Date", point.0, unit: .day),
+                        y: .value("Drawdown", point.1)
+                    )
+                    .foregroundStyle(lossColor)
+                    .interpolationMethod(.stepEnd)
+                }
+                RuleMark(y: .value("Zero", 0))
+                    .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
+                    .lineStyle(StrokeStyle(dash: [5, 5]))
+            }
+            .frame(height: 190)
+            .chartXScale(domain: cumulativeProfitDomain)
+            .chartYScale(domain: minDrawdown...0)
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(shortCurrency(v))
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 5)) { value in
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
+                        .font(.caption2)
+                }
+            }
+        }
+        .padding()
+        .background(AppTheme.cardBackground)
+        .cornerRadius(10)
+    }
     
     // MARK: - Monthly Bar Chart
     
@@ -328,6 +399,45 @@ struct AnalyticsView: View {
                         .font(.caption2)
                 }
             }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(shortCurrency(v))
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(AppTheme.cardBackground)
+        .cornerRadius(10)
+    }
+
+    // MARK: - Weekday Performance
+
+    private var weekdayPerformanceChart: some View {
+        let data = sessionStore.weekdayPerformance
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Avg Profit by Weekday")
+                .font(.headline)
+
+            Chart {
+                ForEach(data, id: \.weekday) { point in
+                    BarMark(
+                        x: .value("Weekday", point.label),
+                        y: .value("Avg Profit", point.average)
+                    )
+                    .foregroundStyle(point.average >= 0 ? winColor : lossColor)
+                    .opacity(point.sessions > 0 ? 1 : 0.15)
+                }
+                RuleMark(y: .value("Zero", 0))
+                    .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
+                    .lineStyle(StrokeStyle(dash: [5, 5]))
+            }
+            .frame(height: 200)
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
                     AxisGridLine()
@@ -438,7 +548,6 @@ struct StatsDateRangeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var sessionStore: SessionStore
     
-    @State private var useCustomRange = false
     @State private var dateFrom = Date()
     @State private var dateTo = Date()
     
@@ -482,9 +591,9 @@ struct StatsDateRangeSheet: View {
                     DatePicker("From", selection: $dateFrom, displayedComponents: .date)
                     DatePicker("To", selection: $dateTo, displayedComponents: .date)
                     Button("Apply custom range") {
-                        if dateFrom <= dateTo {
-                            apply(start: dateFrom, end: dateTo)
-                        }
+                        let start = min(dateFrom, dateTo)
+                        let end = max(dateFrom, dateTo)
+                        apply(start: start, end: end)
                     }
                 }
             }

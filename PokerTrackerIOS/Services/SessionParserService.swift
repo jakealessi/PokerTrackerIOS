@@ -41,21 +41,21 @@ enum SessionParserService {
     // MARK: - Amount
     
     private static func parseAmount(from text: String) -> Double? {
+        if let derived = parseNetFromBuyInAndCashOut(from: text) {
+            return derived
+        }
+
         let winPatterns = [
             #"won\s+\$?([\d,]+(?:\.\d+)?)"#,
             #"up\s+\$?([\d,]+(?:\.\d+)?)"#,
             #"profit\s+(?:of\s+)?\$?([\d,]+(?:\.\d+)?)"#,
             #"profitability\s+\$?([\d,]+(?:\.\d+)?)"#,
-            #"cashed\s+(?:for\s+)?\$?([\d,]+(?:\.\d+)?)"#,
             #"^\s*\+\s*\$?([\d,]+(?:\.\d+)?)"#,
             #"\+?\$?([\d,]+(?:\.\d+)?)\s*(?:profit|won|up)"#
         ]
         
         for pattern in winPatterns {
-            if let match = text.range(of: pattern, options: .regularExpression) {
-                let substr = String(text[match])
-                if let num = extractNumber(from: substr) { return num }
-            }
+            if let num = extractNumber(using: pattern, in: text) { return num }
         }
         
         let lossPatterns = [
@@ -67,30 +67,37 @@ enum SessionParserService {
         ]
         
         for pattern in lossPatterns {
-            if let match = text.range(of: pattern, options: .regularExpression) {
-                let substr = String(text[match])
-                if let num = extractNumber(from: substr) { return -num }
-            }
-        }
-        
-        let numberPattern = #"\$?([\d,]+(?:\.\d+)?)"#
-        if let match = text.range(of: numberPattern, options: .regularExpression) {
-            let substr = String(text[match])
-            if let num = extractNumber(from: substr), num > 0 {
-                if text.contains("lost") || text.contains("down") || text.contains("loss") {
-                    return -num
-                }
-                return num
-            }
+            if let num = extractNumber(using: pattern, in: text) { return -num }
         }
         
         return nil
     }
-    
-    private static func extractNumber(from str: String) -> Double? {
-        let cleaned = str.replacingOccurrences(of: "$", with: "")
+
+    private static func parseNetFromBuyInAndCashOut(from text: String) -> Double? {
+        let buyInPattern = #"(?:buy(?:\s|-)?in|bought\s*in)\s*(?:for\s*)?\$?([\d,]+(?:\.\d+)?)"#
+        let cashOutPattern = #"(?:cash(?:ed)?\s*out|cashed|cashout)\s*(?:for\s*)?\$?([\d,]+(?:\.\d+)?)"#
+
+        guard
+            let buyIn = extractNumber(using: buyInPattern, in: text),
+            let cashOut = extractNumber(using: cashOutPattern, in: text)
+        else {
+            return nil
+        }
+
+        return cashOut - buyIn
+    }
+
+    private static func extractNumber(using pattern: String, in text: String) -> Double? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        let numeric = text[range]
+            .replacingOccurrences(of: "$", with: "")
             .replacingOccurrences(of: ",", with: "")
-        return Double(cleaned)
+        return Double(numeric)
     }
     
     // MARK: - Hours
@@ -170,11 +177,11 @@ enum SessionParserService {
         if text.contains("plo hi") || text.contains("plo h/l") || text.contains("omaha hi-lo") || text.contains("omaha hi lo") {
             return PokerVariant.ploHiLo.rawValue
         }
-        if text.contains("plo") || text.contains("pot limit omaha") || text.contains("omaha") {
-            return PokerVariant.plo.rawValue
-        }
         if text.contains("5 card") || text.contains("five card") || text.contains("5-card") {
             return PokerVariant.fiveCardPlo.rawValue
+        }
+        if text.contains("plo") || text.contains("pot limit omaha") || text.contains("omaha") {
+            return PokerVariant.plo.rawValue
         }
         if text.contains("stud hi") || text.contains("stud h/l") {
             return PokerVariant.studHiLo.rawValue

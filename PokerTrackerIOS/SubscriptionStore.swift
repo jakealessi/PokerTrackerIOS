@@ -23,8 +23,29 @@ final class SubscriptionStore: ObservableObject {
 
     private var updateListenerTask: Task<Void, Error>?
 
+    /// Valid friend/promo codes that grant premium without payment. Add more as needed.
+    private static let friendCodes: Set<String> = [
+        "FRIEND2025",
+        "BETA",
+    ]
+
+    private static let premiumOverrideKey = "premiumFriendCodeRedeemed"
+
+    /// True if user redeemed a valid friend code (stored in UserDefaults).
+    var hasPremiumFromFriendCode: Bool {
+        UserDefaults.standard.bool(forKey: Self.premiumOverrideKey)
+    }
+
     var isSubscribed: Bool {
-        purchasedProductIDs.contains(Self.proMonthlyProductID)
+        purchasedProductIDs.contains(Self.proMonthlyProductID) || hasPremiumFromFriendCode
+    }
+
+    /// Redeem a friend/promo code. Returns true if the code was valid and premium was granted.
+    func redeemFriendCode(_ code: String) -> Bool {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard Self.friendCodes.contains(normalized) else { return false }
+        UserDefaults.standard.set(true, forKey: Self.premiumOverrideKey)
+        return true
     }
 
     init() {

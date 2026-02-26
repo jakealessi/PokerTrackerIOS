@@ -11,6 +11,7 @@ struct DashboardView: View {
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingAddSession = false
     @State private var showingPaywall = false
+    @State private var showingSettings = false
     @State private var chatMessages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isAILoading = false
@@ -43,6 +44,11 @@ struct DashboardView: View {
             .navigationTitle("Poker Bankroll AI")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     Text("Poker Bankroll AI")
                         .font(.headline)
@@ -61,9 +67,12 @@ struct DashboardView: View {
             .sheet(isPresented: $showingPaywall) {
                 SubscriptionPaywallView(
                     title: "Premium",
-                    subtitle: "Unlock unlimited AI Session Crafter and all stats charts."
+                    subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
             .onDisappear {
                 aiTask?.cancel()
@@ -271,11 +280,11 @@ struct DashboardView: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
                         .foregroundStyle(
-                            inputText.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading
+                            inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading
                             ? Color.gray : AppTheme.accent
                         )
                 }
-                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isAILoading)
+                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -331,6 +340,15 @@ struct DashboardView: View {
                 
             case .complete(let parsed):
                 guard !Task.isCancelled else { return }
+                guard AISessionService.isLoggable(parsed) else {
+                    withAnimation(AppTheme.smoothSpring) {
+                        chatMessages.append(ChatMessage(
+                            role: .assistant,
+                            text: AISessionService.minimumInfoFollowUpMessage()
+                        ))
+                    }
+                    return
+                }
                 if !subscriptionStore.isSubscribed {
                     AISessionCrafterUsage.consumeOne()
                 }

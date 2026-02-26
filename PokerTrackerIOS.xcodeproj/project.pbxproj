@@ -40,6 +40,9 @@
 		A1000038 /* AISessionCrafterUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000038 /* AISessionCrafterUsage.swift */; };
 		A1000039 /* PokerTrackerIOS.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A2000039 /* PokerTrackerIOS.storekit */; };
 		A1000040 /* AppURLs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040 /* AppURLs.swift */; };
+		A1000041 /* OddsCalculatorUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000041 /* OddsCalculatorUsage.swift */; };
+		A1000042 /* PokerEquityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042 /* PokerEquityEngine.swift */; };
+		A1000043 /* OddsCalculatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000043 /* OddsCalculatorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +80,9 @@
 		A2000038 /* AISessionCrafterUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISessionCrafterUsage.swift; sourceTree = "<group>"; };
 		A2000039 /* PokerTrackerIOS.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = PokerTrackerIOS.storekit; sourceTree = "<group>"; };
 		A2000040 /* AppURLs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppURLs.swift; sourceTree = "<group>"; };
+		A2000041 /* OddsCalculatorUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsCalculatorUsage.swift; sourceTree = "<group>"; };
+		A2000042 /* PokerEquityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerEquityEngine.swift; sourceTree = "<group>"; };
+		A2000043 /* OddsCalculatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsCalculatorView.swift; sourceTree = "<group>"; };
 		A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -151,6 +157,7 @@
 				A2000017 /* SettingsView.swift */,
 				A2000030 /* CalendarView.swift */,
 				A2000037 /* SubscriptionPaywallView.swift */,
+				A2000043 /* OddsCalculatorView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -175,6 +182,7 @@
 				A2000035 /* ActivitySheet.swift */,
 				A2000038 /* AISessionCrafterUsage.swift */,
 				A2000040 /* AppURLs.swift */,
+				A2000041 /* OddsCalculatorUsage.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -184,6 +192,7 @@
 			children = (
 				A2000023 /* AISessionService.swift */,
 				A2000029 /* SessionParserService.swift */,
+				A2000042 /* PokerEquityEngine.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -309,6 +318,9 @@
 				A1000037 /* SubscriptionPaywallView.swift in Sources */,
 				A1000038 /* AISessionCrafterUsage.swift in Sources */,
 				A1000040 /* AppURLs.swift in Sources */,
+				A1000041 /* OddsCalculatorUsage.swift in Sources */,
+				A1000042 /* PokerEquityEngine.swift in Sources */,
+				A1000043 /* OddsCalculatorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -456,7 +468,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jakealessi.PokerTrackerIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -485,7 +497,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jakealessi.PokerTrackerIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

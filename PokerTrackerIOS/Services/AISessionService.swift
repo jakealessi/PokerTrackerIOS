@@ -75,6 +75,7 @@ class AISessionService: ObservableObject {
     private let session = URLSession.shared
     /// Default Gemini key for out-of-box AI. Repo is private; users can override in Settings or APIKeys.plist.
     private static let defaultGeminiKey = "AIzaSyCXw4GbAU_V9nV1hLtk0aLjyhljYoa1Hvs"
+    private static let minimumInfoFollowUp = "I need one or two more details before I can log this. What stakes, venue, hours played, or session date should I use?"
 
     private init() {}
     
@@ -93,6 +94,9 @@ class AISessionService: ObservableObject {
         } catch {
             let allUserText = messages.filter { $0.role == .user }.map { $0.text }.joined(separator: " ")
             if let offline = SessionParserService.parse(allUserText) {
+                guard Self.isLoggable(offline) else {
+                    return .followUp(Self.minimumInfoFollowUp)
+                }
                 return .complete(offline)
             }
             throw error
@@ -100,6 +104,9 @@ class AISessionService: ObservableObject {
         
         let allUserText = messages.filter { $0.role == .user }.map { $0.text }.joined(separator: " ")
         if let offline = SessionParserService.parse(allUserText) {
+            guard Self.isLoggable(offline) else {
+                return .followUp(Self.minimumInfoFollowUp)
+            }
             return .complete(offline)
         }
         throw AISessionError.noAPIKey
@@ -121,6 +128,9 @@ class AISessionService: ObservableObject {
             }
         } catch {
             if let offline = SessionParserService.parse(description) {
+                guard Self.isLoggable(offline) else {
+                    throw AISessionError.invalidResponse
+                }
                 let reason = "AI failed: \(error.localizedDescription). Used offline parser."
                 return ParseResult(session: offline, usedFallback: true, fallbackReason: reason)
             }
@@ -128,6 +138,9 @@ class AISessionService: ObservableObject {
         }
         
         if let offline = SessionParserService.parse(description) {
+            guard Self.isLoggable(offline) else {
+                throw AISessionError.invalidResponse
+            }
             return ParseResult(session: offline, usedFallback: true, fallbackReason: "No API key — used offline parser.")
         }
         throw AISessionError.noAPIKey
@@ -293,27 +306,27 @@ class AISessionService: ObservableObject {
         let action = parsed["action"] as? String ?? "create"
         
         if action == "update",
-           let sessionNumber = parsed["sessionNumber"] as? Int,
+           let sessionNumber = Self.parseIntValue(parsed["sessionNumber"]),
            let fields = parsed["fields"] as? [String: Any] {
             return .update(sessionNumber: sessionNumber, fields: fields)
         }
         
         // Create action
-        guard let amount = parsed["amount"] as? Double else {
+        guard let amount = Self.parseDoubleValue(parsed["amount"]) else {
             return .followUp(text)
         }
         
-        let hoursPlayed = parsed["hoursPlayed"] as? Double
+        let hoursPlayed = Self.parseDoubleValue(parsed["hoursPlayed"])
         let stakes = parsed["stakes"] as? String
         let venue = VenueCleaner.clean(parsed["venue"] as? String)
         let notes = parsed["notes"] as? String
         let variant = parsed["variant"] as? String
         let formatRaw = parsed["gameFormat"] as? String ?? parsed["gameType"] as? String ?? "Cash Game"
         let gameType = GameType(rawValue: formatRaw) ?? .cash
-        let buyIn = parsed["buyIn"] as? Double
-        let cashOut = parsed["cashOut"] as? Double
-        let tournamentPosition = parsed["tournamentPosition"] as? Int
-        let rebuys = parsed["rebuys"] as? Int
+        let buyIn = Self.parseDoubleValue(parsed["buyIn"])
+        let cashOut = Self.parseDoubleValue(parsed["cashOut"])
+        let tournamentPosition = Self.parseIntValue(parsed["tournamentPosition"])
+        let rebuys = Self.parseIntValue(parsed["rebuys"])
         let handNotes = parsed["handNotes"] as? String
         
         var date: Date?
@@ -347,6 +360,9 @@ class AISessionService: ObservableObject {
             rebuys: rebuys,
             handNotes: handNotes
         )
+        guard Self.isLoggable(session) else {
+            return .followUp(Self.minimumInfoFollowUp)
+        }
         return .complete(session)
     }
     
@@ -371,6 +387,66 @@ class AISessionService: ObservableObject {
     }
     
     // MARK: - Helpers
+
+    static func isLoggable(_ session: ParsedSession) -> Bool {
+        if !session.amount.isFinite { return false }
+        let hasSupportingDetail =
+            session.hoursPlayed != nil ||
+            hasText(session.stakes) ||
+            hasText(session.venue) ||
+            hasText(session.notes) ||
+            hasText(session.variant) ||
+            session.buyIn != nil ||
+            session.cashOut != nil ||
+            session.date != nil ||
+            session.tournamentPosition != nil ||
+            session.rebuys != nil ||
+            hasText(session.handNotes)
+        return hasSupportingDetail
+    }
+
+    static func minimumInfoFollowUpMessage() -> String {
+        minimumInfoFollowUp
+    }
+
+    private static func hasText(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func parseDoubleValue(_ value: Any?) -> Double? {
+        switch value {
+        case let d as Double:
+            return d
+        case let i as Int:
+            return Double(i)
+        case let n as NSNumber:
+            return n.doubleValue
+        case let s as String:
+            let cleaned = s
+                .replacingOccurrences(of: "$", with: "")
+                .replacingOccurrences(of: ",", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return Double(cleaned)
+        default:
+            return nil
+        }
+    }
+
+    private static func parseIntValue(_ value: Any?) -> Int? {
+        switch value {
+        case let i as Int:
+            return i
+        case let d as Double:
+            return Int(d)
+        case let n as NSNumber:
+            return n.intValue
+        case let s as String:
+            return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
     
     /// e.g. "Monday, February 17, 2025"
     private func formatDayName(_ date: Date) -> String {
@@ -403,16 +479,16 @@ class AISessionService: ObservableObject {
     /// Applies update fields to an existing session
     static func applyUpdate(to session: PokerSession, fields: [String: Any]) -> PokerSession {
         var s = session
-        if let amount = fields["amount"] as? Double { s.amount = amount }
-        if let hours = fields["hoursPlayed"] as? Double { s.hoursPlayed = hours }
+        if let amount = parseDoubleValue(fields["amount"]) { s.amount = amount }
+        if let hours = parseDoubleValue(fields["hoursPlayed"]) { s.hoursPlayed = hours }
         if let stakes = fields["stakes"] as? String { s.stakes = stakes }
         if let raw = fields["venue"] as? String { s.venue = VenueCleaner.clean(raw) }
         if let notes = fields["notes"] as? String { s.notes = notes }
         if let variant = fields["variant"] as? String { s.variant = variant }
-        if let buyIn = fields["buyIn"] as? Double { s.buyIn = buyIn }
-        if let cashOut = fields["cashOut"] as? Double { s.cashOut = cashOut }
-        if let pos = fields["tournamentPosition"] as? Int { s.tournamentPosition = pos }
-        if let rebuys = fields["rebuys"] as? Int { s.rebuys = rebuys }
+        if let buyIn = parseDoubleValue(fields["buyIn"]) { s.buyIn = buyIn }
+        if let cashOut = parseDoubleValue(fields["cashOut"]) { s.cashOut = cashOut }
+        if let pos = parseIntValue(fields["tournamentPosition"]) { s.tournamentPosition = pos }
+        if let rebuys = parseIntValue(fields["rebuys"]) { s.rebuys = rebuys }
         if let handNotes = fields["handNotes"] as? String { s.handNotes = handNotes }
         if let formatRaw = fields["gameFormat"] as? String,
            let gameType = GameType(rawValue: formatRaw) { s.gameType = gameType }

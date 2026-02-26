@@ -48,7 +48,12 @@ struct SessionDetailView: View {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     Button(role: .destructive) {
-                        showingDeleteConfirm = true
+                        if settingsStore.settings.confirmBeforeDelete {
+                            showingDeleteConfirm = true
+                        } else {
+                            sessionStore.deleteSession(session)
+                            dismiss()
+                        }
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
@@ -87,11 +92,13 @@ struct SessionDetailView: View {
     
     private var amountCard: some View {
         VStack(spacing: 8) {
-            Text("Session #\(sessionStore.displayNumber(for: session) ?? 0)")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-            Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
+            if settingsStore.settings.showSessionNumbers {
+                Text("Session #\(sessionStore.displayNumber(for: session) ?? 0)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
+            Text(formattedAmount(session.amount))
                 .font(.system(size: 36, weight: .bold))
                 .foregroundStyle(session.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
             Text(session.date, style: .date)
@@ -196,14 +203,15 @@ struct SessionDetailView: View {
         }
     }
     
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        return f
-    }()
-    
     private func timeString(from date: Date) -> String {
-        Self.timeFormatter.string(from: date)
+        let formatter = DateFormatter()
+        if settingsStore.settings.use24HourTime {
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "HH:mm"
+        } else {
+            formatter.timeStyle = .short
+        }
+        return formatter.string(from: date)
     }
     
     private func timeRangeString(from start: Date, to end: Date) -> String {
@@ -233,7 +241,7 @@ struct SessionDetailView: View {
                         .clipped()
                         .cornerRadius(12)
                         .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
+                        .onTapGesture {
                             fullScreenImageIndex = index
                         }
                 }
@@ -281,18 +289,25 @@ struct SessionDetailView: View {
         let index: Int
         var id: Int { index }
     }
+
+    private func formattedAmount(_ value: Double) -> String {
+        let currency = settingsStore.settings.currency
+        if settingsStore.settings.useCompactCurrency {
+            let prefix = value > 0 ? "+" : (value < 0 ? "-" : "")
+            return prefix + PokerSession.formatCompactCurrency(abs(value), currency: currency)
+        }
+        return PokerSession.formatCurrency(value, currency: currency)
+    }
     
     private var sessionShareText: String {
         var lines = [
-            "\(session.displayVariantAbbreviation) \(session.gameType.abbreviation) • \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))",
+            "\(session.displayVariantAbbreviation) \(session.gameType.abbreviation) • \(formattedAmount(session.amount))",
             session.date.formatted(date: .long, time: .omitted)
         ]
         if let stakes = session.stakes, !stakes.isEmpty { lines.append("Stakes: \(stakes)") }
         if let venue = session.venue, !venue.isEmpty { lines.append("Venue: \(venue)") }
         if let start = session.startTime, let end = session.endTime {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            lines.append("\(formatter.string(from: start)) – \(formatter.string(from: end))")
+            lines.append("\(timeString(from: start)) – \(timeString(from: end))")
         }
         if let hours = session.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
         if let roi = session.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
