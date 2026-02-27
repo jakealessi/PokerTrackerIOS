@@ -10,6 +10,7 @@ import SwiftUI
 
 struct OddsCalculatorView: View {
     @EnvironmentObject var subscriptionStore: SubscriptionStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showingPaywall = false
     @State private var showingSettings = false
     @State private var gameType: EquityGameType = .nlh
@@ -411,7 +412,7 @@ struct OddsCalculatorView: View {
         let base: Color
         switch card.suit {
         case .hearts:   base = .red
-        case .spades:   base = .black
+        case .spades:   base = colorScheme == .dark ? Color(white: 0.28) : .black
         case .clubs:    base = .green
         case .diamonds: base = .blue
         }
