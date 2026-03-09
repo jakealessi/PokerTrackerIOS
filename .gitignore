@@ -39,6 +39,10 @@ Pods/
 *.xcworkspace
 !default.xcworkspace
 
+# Cloudflare Worker
+cloudflare-worker/node_modules/
+cloudflare-worker/.dev.vars
+
 # macOS
 .DS_Store
 .AppleDouble
