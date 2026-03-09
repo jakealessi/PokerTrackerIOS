@@ -13,6 +13,7 @@ struct DashboardView: View {
     @State private var showingPaywall = false
     @State private var showingSettings = false
     @State private var chatMessages: [ChatMessage] = []
+    @State private var conversationId = UUID().uuidString
     @State private var inputText = ""
     @State private var isAILoading = false
     @State private var aiError: String?
@@ -246,6 +247,7 @@ struct DashboardView: View {
                     Button {
                         withAnimation(AppTheme.smoothSpring) {
                             chatMessages.removeAll()
+                            conversationId = UUID().uuidString
                             aiError = nil
                         }
                     } label: {
@@ -322,9 +324,13 @@ struct DashboardView: View {
             currency: settingsStore.settings.currency
         )
         
+        let recentMessages = Array(chatMessages.suffix(6))
+        
         do {
             let result = try await AISessionService.shared.converse(
-                messages: chatMessages,
+                messages: recentMessages,
+                conversationId: conversationId,
+                workerBaseURL: settingsStore.settings.workerBaseURL,
                 geminiKey: settingsStore.settings.geminiAPIKey ?? APIKeysLoader.geminiKey,
                 openAIKey: settingsStore.settings.openAIAPIKey ?? APIKeysLoader.openAIKey,
                 existingSessions: context
@@ -402,6 +408,18 @@ struct DashboardView: View {
                     }
                 }
             }
+        } catch let err as AISessionError where err.isFriendly {
+            guard !Task.isCancelled else { return }
+            withAnimation(AppTheme.smoothSpring) {
+                chatMessages.append(ChatMessage(role: .assistant, text: err.errorDescription ?? "Something went wrong."))
+            }
+            if settingsStore.settings.hapticFeedback { HapticManager.notification(.error) }
+        } catch is URLError {
+            guard !Task.isCancelled else { return }
+            withAnimation(AppTheme.smoothSpring) {
+                chatMessages.append(ChatMessage(role: .assistant, text: "Couldn't reach the AI service. Check your connection and try again."))
+            }
+            if settingsStore.settings.hapticFeedback { HapticManager.notification(.error) }
         } catch {
             guard !Task.isCancelled else { return }
             aiError = error.localizedDescription

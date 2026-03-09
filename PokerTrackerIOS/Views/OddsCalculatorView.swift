@@ -10,9 +10,13 @@ import SwiftUI
 
 struct OddsCalculatorView: View {
     @EnvironmentObject var subscriptionStore: SubscriptionStore
+    @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.colorScheme) private var colorScheme
+    let preselectedSessionID: UUID?
     @State private var showingPaywall = false
     @State private var showingSettings = false
+    @State private var showingAttachSheet = false
+    @State private var showingAddSession = false
     @State private var gameType: EquityGameType = .nlh
     @State private var numberOfHands = 2
     @State private var hands: [[PlayingCard]] = Array(repeating: [], count: 6)
@@ -23,6 +27,13 @@ struct OddsCalculatorView: View {
     @State private var isCalculating = false
     @State private var errorMessage: String?
     @State private var hasChargedCurrentHand = false
+    @State private var pendingAttachedHandForNewSession: PokerSession.AttachedHand?
+    @State private var showingShareSheet = false
+    @State private var shareActivityItems: [Any] = []
+
+    init(preselectedSessionID: UUID? = nil) {
+        self.preselectedSessionID = preselectedSessionID
+    }
 
     private var canUse: Bool {
         subscriptionStore.isSubscribed || OddsCalculatorUsage.hasFreeUsesRemaining
@@ -47,11 +58,14 @@ struct OddsCalculatorView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("New Hand") {
-                        clearAll()
+                    Button {
+                        shareActivityItems = [handShareText]
+                        showingShareSheet = true
                     }
+                    label: { Text("Share") }
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.accent)
+                    .disabled(!hasShareableHand)
                 }
             }
             .sheet(isPresented: $showingPaywall) {
@@ -63,6 +77,29 @@ struct OddsCalculatorView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showingAttachSheet, onDismiss: handleAttachSheetDismiss) {
+                if let attachedHandDraft = makeAttachedHand(note: nil) {
+                    AttachHandToSessionSheet(
+                        handDraft: attachedHandDraft,
+                        preselectedSessionID: preselectedSessionID
+                    ) { handForNewSession in
+                        pendingAttachedHandForNewSession = handForNewSession
+                    }
+                    .environmentObject(sessionStore)
+                    .presentationDetents([.medium, .large])
+                }
+            }
+            .sheet(isPresented: $showingAddSession, onDismiss: {
+                pendingAttachedHandForNewSession = nil
+            }) {
+                AddSessionView(
+                    prefilledAttachedHands: pendingAttachedHandForNewSession.map { [$0] } ?? []
+                )
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                ActivitySheet(activityItems: shareActivityItems)
             }
         }
     }
@@ -119,6 +156,7 @@ struct OddsCalculatorView: View {
                             usageBanner
                         }
                         gameTypePicker
+                        actionsRow
                         handsSection
                         boardSection
                         if let r = result, !isCalculating {
@@ -188,24 +226,21 @@ struct OddsCalculatorView: View {
 
     private var handsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Hands")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if numberOfHands < 6 {
-                    Button {
-                        numberOfHands += 1
-                    } label: {
-                        Label("Add Hand", systemImage: "plus.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                }
-            }
+            Text("Hands")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
             ForEach(0..<numberOfHands, id: \.self) { i in
                 handRow(index: i)
+            }
+            if numberOfHands < 6 {
+                Button {
+                    numberOfHands += 1
+                } label: {
+                    Label("Add Hand", systemImage: "plus.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.accent)
+                }
             }
             if numberOfHands > 2 {
                 Button {
@@ -216,6 +251,20 @@ struct OddsCalculatorView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    private var actionsRow: some View {
+        HStack {
+            Button {
+                clearAll()
+            } label: {
+                Label("Clear", systemImage: "trash")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+            Spacer()
         }
     }
 
@@ -364,6 +413,10 @@ struct OddsCalculatorView: View {
         return (0..<numberOfHands).filter { hands[$0].count == needed }
     }
 
+    private var hasShareableHand: Bool {
+        hands.contains(where: { !$0.isEmpty }) || !board.isEmpty || !deadCards.isEmpty
+    }
+
     private var canCalculate: Bool {
         let needed = gameType.cardsPerHand
         let activeHands = hands.filter { $0.count == needed }
@@ -388,6 +441,17 @@ struct OddsCalculatorView: View {
                     .font(.subheadline)
                 }
             }
+            Button {
+                showingAttachSheet = true
+            } label: {
+                Label("Add to Session", systemImage: "plus.bubble")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.accent)
+            .padding(.top, 6)
         }
         .padding()
         .background(AppTheme.cardBackground)
@@ -434,6 +498,83 @@ struct OddsCalculatorView: View {
 
     private func isCardUsed(_ card: PlayingCard) -> Bool {
         hands.flatMap { $0 }.contains(card) || board.contains(card) || deadCards.contains(card)
+    }
+
+    private func handString(_ cards: [PlayingCard]) -> String {
+        cards.map(cardDisplay).joined(separator: " ")
+    }
+
+    private var gameLabel: String {
+        switch gameType {
+        case .nlh: return "No Limit Hold'em"
+        case .plo: return "Pot Limit Omaha"
+        }
+    }
+
+    private func makeAttachedHand(note: String?) -> PokerSession.AttachedHand? {
+        guard let currentResult = result else { return nil }
+        let playerHandStrings = activeHandIndices.map { handString(hands[$0]) }
+        guard playerHandStrings.count >= 2 else { return nil }
+
+        let summaries = activeHandIndices.compactMap { handIndex -> String? in
+            guard let resultIndex = activeHandIndices.firstIndex(of: handIndex) else { return nil }
+            return String(
+                format: "Hand %d: Win %.1f%% • Tie %.1f%%",
+                handIndex + 1,
+                currentResult.winPercent(forHand: resultIndex),
+                currentResult.tiePercent(forHand: resultIndex)
+            )
+        }
+
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PokerSession.AttachedHand(
+            game: gameLabel,
+            playerHands: playerHandStrings,
+            board: board.isEmpty ? nil : handString(board),
+            deadCards: deadCards.isEmpty ? nil : handString(deadCards),
+            resultSummary: summaries,
+            note: (trimmedNote?.isEmpty == false) ? trimmedNote : nil
+        )
+    }
+
+    private var handShareText: String {
+        var lines: [String] = ["Odds Calculator • \(gameLabel)"]
+
+        for handIndex in 0..<numberOfHands where !hands[handIndex].isEmpty {
+            lines.append("Hand \(handIndex + 1): \(handString(hands[handIndex]))")
+        }
+
+        if !board.isEmpty {
+            lines.append("Board: \(handString(board))")
+        }
+        if !deadCards.isEmpty {
+            lines.append("Dead: \(handString(deadCards))")
+        }
+
+        if let currentResult = result {
+            lines.append("Results (\(currentResult.totalRunouts) runouts)")
+            for handIdx in activeHandIndices {
+                if let resultIdx = activeHandIndices.firstIndex(of: handIdx) {
+                    lines.append(
+                        String(
+                            format: "Hand %d: Win %.1f%% • Tie %.1f%%",
+                            handIdx + 1,
+                            currentResult.winPercent(forHand: resultIdx),
+                            currentResult.tiePercent(forHand: resultIdx)
+                        )
+                    )
+                }
+            }
+        } else {
+            lines.append("Results: Not calculated yet")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func handleAttachSheetDismiss() {
+        guard pendingAttachedHandForNewSession != nil else { return }
+        showingAddSession = true
     }
 
     private func addCard(_ card: PlayingCard) {
@@ -496,6 +637,7 @@ struct OddsCalculatorView: View {
     }
 
     private func removeCard(_ card: PlayingCard) {
+        let needed = gameType.cardsPerHand
         for i in 0..<hands.count {
             if let idx = hands[i].firstIndex(of: card) {
                 var updatedHands = hands
@@ -503,6 +645,8 @@ struct OddsCalculatorView: View {
                 handCopy.remove(at: idx)
                 updatedHands[i] = handCopy
                 hands = updatedHands
+                let nextEmptyIndex = min(handCopy.count, max(0, needed - 1))
+                selectedSlot = .hand(i, nextEmptyIndex)
                 triggerCalculationIfNeeded()
                 return
             }
@@ -511,6 +655,7 @@ struct OddsCalculatorView: View {
             var updated = board
             updated.remove(at: idx)
             board = updated
+            selectedSlot = .board(min(updated.count, 4))
             triggerCalculationIfNeeded()
             return
         }
@@ -518,6 +663,7 @@ struct OddsCalculatorView: View {
             var updated = deadCards
             updated.remove(at: idx)
             deadCards = updated
+            selectedSlot = .dead(min(updated.count, 9))
             triggerCalculationIfNeeded()
             return
         }
@@ -635,7 +781,95 @@ struct OddsCalculatorView: View {
     }
 }
 
+private struct AttachHandToSessionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var sessionStore: SessionStore
+    let handDraft: PokerSession.AttachedHand
+    let preselectedSessionID: UUID?
+    let onAttachToNewSession: (PokerSession.AttachedHand) -> Void
+    @State private var note: String = ""
+
+    private var sessionsMostRecentFirst: [PokerSession] {
+        sessionStore.sessions.sorted {
+            if $0.date != $1.date { return $0.date > $1.date }
+            return $0.id.uuidString > $1.id.uuidString
+        }
+    }
+
+    private var handToAttach: PokerSession.AttachedHand {
+        var updated = handDraft
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.note = trimmedNote.isEmpty ? nil : trimmedNote
+        return updated
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Hand Note") {
+                    TextField("Optional note for this hand", text: $note, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+
+                Section {
+                    Button {
+                        onAttachToNewSession(handToAttach)
+                        dismiss()
+                    } label: {
+                        Label("Attach to New Session", systemImage: "plus.circle.fill")
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+
+                Section("Attach to Existing Session") {
+                    if sessionsMostRecentFirst.isEmpty {
+                        Text("No sessions yet. Create a new session first.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(sessionsMostRecentFirst) { session in
+                            Button {
+                                sessionStore.addAttachedHand(handToAttach, toSessionID: session.id)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(session.displayVariantAbbreviation)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                        Text(session.date, style: .date)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(session.formattedAmount)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(session.amount >= 0 ? .green : .red)
+                                    if session.id == preselectedSessionID {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(AppTheme.accent)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add to Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 #Preview {
     OddsCalculatorView()
         .environmentObject(SubscriptionStore.shared)
+        .environmentObject(SessionStore())
 }

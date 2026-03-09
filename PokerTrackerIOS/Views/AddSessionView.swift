@@ -29,8 +29,13 @@ struct AddSessionView: View {
     @State private var startTime: Date? = nil
     @State private var endTime: Date? = nil
     @State private var imageIds: [String] = []
+    @State private var attachedHands: [PokerSession.AttachedHand]
     
     private let calendar = Calendar.current
+
+    init(prefilledAttachedHands: [PokerSession.AttachedHand] = []) {
+        _attachedHands = State(initialValue: prefilledAttachedHands)
+    }
     
     private var parsedAmount: Double {
         let cleaned = amount.replacingOccurrences(of: "$", with: "")
@@ -141,6 +146,26 @@ struct AddSessionView: View {
                         .lineLimit(3...6)
                     TextField("Notable hands", text: $handNotes, axis: .vertical)
                         .lineLimit(3...6)
+                }
+
+                if !attachedHands.isEmpty {
+                    Section("Attached Hands") {
+                        ForEach(attachedHands) { hand in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(hand.game)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(hand.playerHands.joined(separator: " vs "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let note = hand.note, !note.isEmpty {
+                                    Text("Hand Note: \(note)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
                 }
                 
                 ImageAttachmentsSection(imageIds: $imageIds)
@@ -266,6 +291,7 @@ struct AddSessionView: View {
             tournamentPosition: Int(tournamentPosition),
             rebuys: Int(rebuys),
             handNotes: handNotes.isEmpty ? nil : handNotes,
+            attachedHands: attachedHands,
             startTime: startTime,
             endTime: endTime,
             imageIds: imageIds

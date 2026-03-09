@@ -2,9 +2,10 @@
 //  AISessionService.swift
 //  PokerTrackerIOS
 //
-//  Conversational AI session logging via Gemini or OpenAI.
-//  Supports creating new sessions and updating existing ones by session number.
-//  Falls back to offline regex parser if API fails.
+//  Conversational AI session logging.
+//  Routes through user's own API key when available (direct call),
+//  otherwise proxies via Cloudflare Worker (developer default key).
+//  Falls back to offline regex parser if both paths fail.
 //
 
 import Foundation
@@ -55,6 +56,8 @@ enum AISessionError: LocalizedError {
     case invalidResponse
     case networkError(Error)
     case sessionNotFound(Int)
+    case rateLimited
+    case serviceUnavailable(String)
     
     var errorDescription: String? {
         switch self {
@@ -62,6 +65,15 @@ enum AISessionError: LocalizedError {
         case .invalidResponse: return "Couldn't parse session from response"
         case .networkError(let e): return e.localizedDescription
         case .sessionNotFound(let n): return "Session #\(n) not found"
+        case .rateLimited: return "Too many requests — please wait a moment and try again"
+        case .serviceUnavailable(let msg): return msg
+        }
+    }
+
+    var isFriendly: Bool {
+        switch self {
+        case .rateLimited, .serviceUnavailable: return true
+        default: return false
         }
     }
 }
@@ -72,28 +84,41 @@ enum AISessionError: LocalizedError {
 class AISessionService: ObservableObject {
     static let shared = AISessionService()
     
-    private let session = URLSession.shared
-    /// Default Gemini key for out-of-box AI. Repo is private; users can override in Settings or APIKeys.plist.
-    private static let defaultGeminiKey = "AIzaSyCXw4GbAU_V9nV1hLtk0aLjyhljYoa1Hvs"
+    private let urlSession = URLSession.shared
     private static let minimumInfoFollowUp = "I need one or two more details before I can log this. What stakes, venue, hours played, or session date should I use?"
 
     private init() {}
     
     // MARK: - Conversational parsing
     
-    func converse(messages: [ChatMessage], geminiKey: String?, openAIKey: String?, existingSessions: String = "") async throws -> ConversationResult {
-        let resolvedGemini = geminiKey ?? APIKeysLoader.geminiKey ?? Self.defaultGeminiKey
-        
+    /// Routes to direct provider call if user has their own key, otherwise Worker proxy.
+    func converse(
+        messages: [ChatMessage],
+        conversationId: String,
+        workerBaseURL: String,
+        geminiKey: String?,
+        openAIKey: String?,
+        existingSessions: String = ""
+    ) async throws -> ConversationResult {
+        guard let lastUserMsg = messages.last(where: { $0.role == .user }) else {
+            throw AISessionError.invalidResponse
+        }
+        let current = [lastUserMsg]
         do {
-            if !resolvedGemini.isEmpty {
-                return try await converseWithGemini(messages: messages, apiKey: resolvedGemini, existingSessions: existingSessions)
+            if let key = geminiKey, !key.isEmpty {
+                return try await converseWithGemini(messages: current, apiKey: key, existingSessions: existingSessions)
             }
             if let key = openAIKey, !key.isEmpty {
-                return try await converseWithOpenAI(messages: messages, apiKey: key, existingSessions: existingSessions)
+                return try await converseWithOpenAI(messages: current, apiKey: key, existingSessions: existingSessions)
             }
+            return try await converseViaWorker(
+                messages: current,
+                conversationId: conversationId,
+                workerBaseURL: workerBaseURL,
+                existingSessions: existingSessions
+            )
         } catch {
-            let allUserText = messages.filter { $0.role == .user }.map { $0.text }.joined(separator: " ")
-            if let offline = SessionParserService.parse(allUserText) {
+            if let offline = SessionParserService.parse(lastUserMsg.text) {
                 guard Self.isLoggable(offline) else {
                     return .followUp(Self.minimumInfoFollowUp)
                 }
@@ -101,49 +126,42 @@ class AISessionService: ObservableObject {
             }
             throw error
         }
-        
-        let allUserText = messages.filter { $0.role == .user }.map { $0.text }.joined(separator: " ")
-        if let offline = SessionParserService.parse(allUserText) {
-            guard Self.isLoggable(offline) else {
-                return .followUp(Self.minimumInfoFollowUp)
-            }
-            return .complete(offline)
-        }
-        throw AISessionError.noAPIKey
     }
     
     // MARK: - Single-shot parsing
     
-    func parseSession(from description: String, geminiKey: String?, openAIKey: String?) async throws -> ParseResult {
-        let resolvedGemini = geminiKey ?? APIKeysLoader.geminiKey ?? Self.defaultGeminiKey
-        
+    func parseSession(from description: String, workerBaseURL: String, geminiKey: String?, openAIKey: String?) async throws -> ParseResult {
+        let messages = [ChatMessage(role: .user, text: description)]
         do {
-            if !resolvedGemini.isEmpty {
-                let parsed = try await parseWithGemini(from: description, apiKey: resolvedGemini)
-                return ParseResult(session: parsed, usedFallback: false, fallbackReason: nil)
+            let result: ConversationResult
+            if let key = geminiKey, !key.isEmpty {
+                result = try await converseWithGemini(messages: messages, apiKey: key, existingSessions: "")
+            } else if let key = openAIKey, !key.isEmpty {
+                result = try await converseWithOpenAI(messages: messages, apiKey: key, existingSessions: "")
+            } else {
+                result = try await converseViaWorker(
+                    messages: messages,
+                    conversationId: UUID().uuidString,
+                    workerBaseURL: workerBaseURL,
+                    existingSessions: ""
+                )
             }
-            if let key = openAIKey, !key.isEmpty {
-                let parsed = try await parseWithOpenAI(from: description, apiKey: key)
-                return ParseResult(session: parsed, usedFallback: false, fallbackReason: nil)
+            switch result {
+            case .complete(let session):
+                return ParseResult(session: session, usedFallback: false, fallbackReason: nil)
+            case .followUp, .update:
+                throw AISessionError.invalidResponse
             }
         } catch {
             if let offline = SessionParserService.parse(description) {
                 guard Self.isLoggable(offline) else {
                     throw AISessionError.invalidResponse
                 }
-                let reason = "AI failed: \(error.localizedDescription). Used offline parser."
+                let reason = "AI unavailable: \(error.localizedDescription). Used offline parser."
                 return ParseResult(session: offline, usedFallback: true, fallbackReason: reason)
             }
             throw error
         }
-        
-        if let offline = SessionParserService.parse(description) {
-            guard Self.isLoggable(offline) else {
-                throw AISessionError.invalidResponse
-            }
-            return ParseResult(session: offline, usedFallback: true, fallbackReason: "No API key — used offline parser.")
-        }
-        throw AISessionError.noAPIKey
     }
     
     // MARK: - System Prompt
@@ -152,7 +170,6 @@ class AISessionService: ObservableObject {
         let now = Date()
         let todayISO = ISO8601DateFormatter().string(from: now)
         let dayName = formatDayName(now)
-        // e.g. "Today is Monday, February 17, 2025. Use this as the ONLY reference for relative dates."
         let dateContext = "Today is \(dayName). The current date in ISO 8601 is: \(todayISO). Use this as the ONLY reference when interpreting relative dates."
 
         var prompt = """
@@ -197,7 +214,7 @@ class AISessionService: ObservableObject {
         return prompt
     }
     
-    // MARK: - Gemini Conversation
+    // MARK: - Direct Gemini Conversation
     
     private func converseWithGemini(messages: [ChatMessage], apiKey: String, existingSessions: String) async throws -> ConversationResult {
         var contents: [[String: Any]] = []
@@ -220,7 +237,7 @@ class AISessionService: ObservableObject {
             ]
         ])
         
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await urlSession.data(for: request)
         
         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = errorJson["error"] as? [String: Any],
@@ -246,7 +263,7 @@ class AISessionService: ObservableObject {
         return classifyResponse(cleaned)
     }
     
-    // MARK: - OpenAI Conversation
+    // MARK: - Direct OpenAI Conversation
     
     private func converseWithOpenAI(messages: [ChatMessage], apiKey: String, existingSessions: String) async throws -> ConversationResult {
         var oaiMessages: [[String: String]] = [
@@ -270,7 +287,7 @@ class AISessionService: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await urlSession.data(for: request)
         
         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = errorJson["error"] as? [String: Any],
@@ -294,7 +311,55 @@ class AISessionService: ObservableObject {
         return classifyResponse(cleaned)
     }
     
-    // MARK: - Response Classification
+    // MARK: - Worker proxy call
+    
+    private func converseViaWorker(messages: [ChatMessage], conversationId: String, workerBaseURL: String, existingSessions: String) async throws -> ConversationResult {
+        guard let url = URL(string: "\(workerBaseURL)/v1/ai/session-crafter") else {
+            throw AISessionError.serviceUnavailable("Invalid Worker URL")
+        }
+        
+        let currentMessage = messages.last(where: { $0.role == .user })?.text ?? ""
+        let history: [[String: String]] = Array(messages.dropLast()).suffix(5).map { msg in
+            ["role": msg.role == .user ? "user" : "assistant", "text": msg.text]
+        }
+        
+        let body: [String: Any] = [
+            "userId": AnonymousUserID.getOrCreate(),
+            "conversationId": conversationId,
+            "message": currentMessage,
+            "history": history,
+            "sessionContext": existingSessions
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await urlSession.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AISessionError.networkError(URLError(.badServerResponse))
+        }
+        
+        if httpResponse.statusCode == 429 {
+            throw AISessionError.rateLimited
+        }
+        
+        if httpResponse.statusCode != 200 {
+            if let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let errObj = errJson["error"] as? [String: Any],
+               let message = errObj["message"] as? String {
+                throw AISessionError.serviceUnavailable(message)
+            }
+            throw AISessionError.serviceUnavailable("AI service error (HTTP \(httpResponse.statusCode))")
+        }
+        
+        return try parseWorkerResponse(data)
+    }
+    
+    // MARK: - Response Classification (direct provider path)
     
     private func classifyResponse(_ text: String) -> ConversationResult {
         guard text.hasPrefix("{"),
@@ -311,7 +376,6 @@ class AISessionService: ObservableObject {
             return .update(sessionNumber: sessionNumber, fields: fields)
         }
         
-        // Create action
         guard let amount = Self.parseDoubleValue(parsed["amount"]) else {
             return .followUp(text)
         }
@@ -366,24 +430,89 @@ class AISessionService: ObservableObject {
         return .complete(session)
     }
     
-    // MARK: - Single-shot helpers
+    // MARK: - Worker response parsing
     
-    private func parseWithGemini(from description: String, apiKey: String) async throws -> ParsedSession {
-        let messages = [ChatMessage(role: .user, text: description)]
-        let result = try await converseWithGemini(messages: messages, apiKey: apiKey, existingSessions: "")
-        switch result {
-        case .complete(let session): return session
-        case .followUp, .update: throw AISessionError.invalidResponse
+    private func parseWorkerResponse(_ data: Data) throws -> ConversationResult {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let resultType = json["resultType"] as? String else {
+            throw AISessionError.invalidResponse
+        }
+        
+        let text = json["text"] as? String ?? ""
+        
+        switch resultType {
+        case "followUp":
+            return .followUp(text)
+            
+        case "complete":
+            guard let sessionDict = json["parsedSession"] as? [String: Any] else {
+                throw AISessionError.invalidResponse
+            }
+            let session = try Self.parsedSessionFromDict(sessionDict)
+            return .complete(session)
+            
+        case "update":
+            guard let updateDict = json["update"] as? [String: Any],
+                  let sessionNumber = Self.parseIntValue(updateDict["sessionNumber"]),
+                  let fields = updateDict["fields"] as? [String: Any] else {
+                throw AISessionError.invalidResponse
+            }
+            return .update(sessionNumber: sessionNumber, fields: fields)
+            
+        default:
+            return .followUp(text)
         }
     }
     
-    private func parseWithOpenAI(from description: String, apiKey: String) async throws -> ParsedSession {
-        let messages = [ChatMessage(role: .user, text: description)]
-        let result = try await converseWithOpenAI(messages: messages, apiKey: apiKey, existingSessions: "")
-        switch result {
-        case .complete(let session): return session
-        case .followUp, .update: throw AISessionError.invalidResponse
+    private static func parsedSessionFromDict(_ d: [String: Any]) throws -> ParsedSession {
+        guard let amount = parseDoubleValue(d["amount"]) else {
+            throw AISessionError.invalidResponse
         }
+        
+        let hoursPlayed = parseDoubleValue(d["hoursPlayed"])
+        let stakes = d["stakes"] as? String
+        let venue = VenueCleaner.clean(d["venue"] as? String)
+        let notes = d["notes"] as? String
+        let variant = d["variant"] as? String
+        let formatRaw = d["gameFormat"] as? String ?? d["gameType"] as? String ?? "Cash Game"
+        let gameType = GameType(rawValue: formatRaw) ?? .cash
+        let buyIn = parseDoubleValue(d["buyIn"])
+        let cashOut = parseDoubleValue(d["cashOut"])
+        let tournamentPosition = parseIntValue(d["tournamentPosition"])
+        let rebuys = parseIntValue(d["rebuys"])
+        let handNotes = d["handNotes"] as? String
+        
+        var date: Date?
+        if let dateStr = d["date"] as? String {
+            let fmt = ISO8601DateFormatter()
+            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            date = fmt.date(from: dateStr)
+            if date == nil {
+                let fmt2 = ISO8601DateFormatter()
+                date = fmt2.date(from: dateStr)
+            }
+            if date == nil {
+                let df = DateFormatter()
+                df.dateFormat = "yyyy-MM-dd"
+                date = df.date(from: dateStr)
+            }
+        }
+        
+        return ParsedSession(
+            amount: amount,
+            hoursPlayed: hoursPlayed,
+            stakes: stakes,
+            venue: venue,
+            gameType: gameType,
+            variant: variant,
+            notes: notes,
+            buyIn: buyIn,
+            cashOut: cashOut,
+            date: date,
+            tournamentPosition: tournamentPosition,
+            rebuys: rebuys,
+            handNotes: handNotes
+        )
     }
     
     // MARK: - Helpers
@@ -414,7 +543,7 @@ class AISessionService: ObservableObject {
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private static func parseDoubleValue(_ value: Any?) -> Double? {
+    static func parseDoubleValue(_ value: Any?) -> Double? {
         switch value {
         case let d as Double:
             return d
@@ -433,7 +562,7 @@ class AISessionService: ObservableObject {
         }
     }
 
-    private static func parseIntValue(_ value: Any?) -> Int? {
+    static func parseIntValue(_ value: Any?) -> Int? {
         switch value {
         case let i as Int:
             return i
@@ -448,7 +577,6 @@ class AISessionService: ObservableObject {
         }
     }
     
-    /// e.g. "Monday, February 17, 2025"
     private func formatDayName(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d, yyyy"
@@ -456,7 +584,6 @@ class AISessionService: ObservableObject {
     }
     
     /// Builds a compact summary string of sessions for the AI context.
-    /// Numbers are dynamic: earliest = #1, next = #2, etc.
     static func buildSessionContext(from sessions: [PokerSession], currency: String = "USD") -> String {
         guard !sessions.isEmpty else { return "" }
         let sorted = sessions.sorted { $0.date < $1.date }

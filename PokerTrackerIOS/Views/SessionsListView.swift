@@ -11,8 +11,10 @@ struct SessionsListView: View {
     @State private var showingAddSession = false
     @State private var showingFilters = false
     @State private var showingSettings = false
+    @State private var showingOddsCalculator = false
     @State private var sessionToEdit: PokerSession?
     @State private var sessionToDelete: PokerSession?
+    @State private var preselectedAttachSessionID: UUID?
     
     var body: some View {
         NavigationStack {
@@ -40,6 +42,13 @@ struct SessionsListView: View {
                                     Label("Edit", systemImage: "pencil")
                                 }
                                 .tint(.orange)
+                                Button {
+                                    preselectedAttachSessionID = session.id
+                                    showingOddsCalculator = true
+                                } label: {
+                                    Label("Add Hand", systemImage: "percent")
+                                }
+                                .tint(AppTheme.accent)
                             }
                         }
                     }
@@ -67,6 +76,10 @@ struct SessionsListView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { showingAddSession = true } label: { Label("Add Session", systemImage: "plus") }
+                        Button {
+                            preselectedAttachSessionID = nil
+                            showingOddsCalculator = true
+                        } label: { Label("Add Hand", systemImage: "percent") }
                         Button { showingFilters = true } label: { Label("Filters", systemImage: "line.3.horizontal.decrease.circle") }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -77,6 +90,11 @@ struct SessionsListView: View {
             .sheet(isPresented: $showingAddSession) {
                 AddSessionView()
                     .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showingOddsCalculator, onDismiss: {
+                preselectedAttachSessionID = nil
+            }) {
+                OddsCalculatorView(preselectedSessionID: preselectedAttachSessionID)
             }
             .sheet(isPresented: $showingFilters) { FilterView() }
             .sheet(isPresented: $showingSettings) { SettingsView() }
@@ -109,6 +127,11 @@ struct SessionsListView: View {
             if sessionStore.searchText.isEmpty {
                 Button("Add Session") { showingAddSession = true }
                     .foregroundStyle(AppTheme.accent)
+                Button("Add Hand") {
+                    preselectedAttachSessionID = nil
+                    showingOddsCalculator = true
+                }
+                .foregroundStyle(AppTheme.accent)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

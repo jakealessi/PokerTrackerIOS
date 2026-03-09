@@ -6,6 +6,37 @@
 import Foundation
 
 struct PokerSession: Identifiable, Codable, Equatable {
+    struct AttachedHand: Identifiable, Codable, Equatable {
+        let id: UUID
+        var createdAt: Date
+        var game: String
+        var playerHands: [String]
+        var board: String?
+        var deadCards: String?
+        var resultSummary: [String]
+        var note: String?
+
+        init(
+            id: UUID = UUID(),
+            createdAt: Date = Date(),
+            game: String,
+            playerHands: [String],
+            board: String? = nil,
+            deadCards: String? = nil,
+            resultSummary: [String] = [],
+            note: String? = nil
+        ) {
+            self.id = id
+            self.createdAt = createdAt
+            self.game = game
+            self.playerHands = playerHands
+            self.board = board
+            self.deadCards = deadCards
+            self.resultSummary = resultSummary
+            self.note = note
+        }
+    }
+
     let id: UUID
     var sessionNumber: Int
     var amount: Double
@@ -21,6 +52,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var tournamentPosition: Int?
     var rebuys: Int?
     var handNotes: String?
+    var attachedHands: [AttachedHand]
     var startTime: Date?
     var endTime: Date?
     var imageIds: [String]
@@ -41,6 +73,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         tournamentPosition: Int? = nil,
         rebuys: Int? = nil,
         handNotes: String? = nil,
+        attachedHands: [AttachedHand] = [],
         startTime: Date? = nil,
         endTime: Date? = nil,
         imageIds: [String] = []
@@ -60,6 +93,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.tournamentPosition = tournamentPosition
         self.rebuys = rebuys
         self.handNotes = handNotes
+        self.attachedHands = attachedHands
         self.startTime = startTime
         self.endTime = endTime
         self.imageIds = imageIds
@@ -83,6 +117,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         tournamentPosition = try c.decodeIfPresent(Int.self, forKey: .tournamentPosition)
         rebuys = try c.decodeIfPresent(Int.self, forKey: .rebuys)
         handNotes = try c.decodeIfPresent(String.self, forKey: .handNotes)
+        attachedHands = try c.decodeIfPresent([AttachedHand].self, forKey: .attachedHands) ?? []
         startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
         endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
         imageIds = try c.decodeIfPresent([String].self, forKey: .imageIds) ?? []

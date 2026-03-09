@@ -37,9 +37,31 @@ class SessionStore: ObservableObject {
     @Published var searchText: String = ""
     
     private let saveKey = "poker_sessions"
+    private let saveUpdatedAtKey = "poker_sessions_updated_at"
+    private let cloudSaveKey = "icloud_poker_sessions"
+    private let cloudSaveUpdatedAtKey = "icloud_poker_sessions_updated_at"
+    private let cloudStore = NSUbiquitousKeyValueStore.default
+    private var cloudObserver: NSObjectProtocol?
+    private var isApplyingCloudSync = false
+    private var cloudSyncUpdatedAt: TimeInterval?
     
     init() {
         loadSessions()
+        cloudObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: cloudStore,
+            queue: .main
+        ) { [weak self] _ in
+            self?.syncFromCloudIfNewer()
+        }
+        cloudStore.synchronize()
+        syncFromCloudIfNewer()
+    }
+
+    deinit {
+        if let observer = cloudObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     // MARK: - Filtered Sessions
@@ -63,9 +85,15 @@ class SessionStore: ObservableObject {
             let search = searchText.lowercased()
             result = result.filter {
                 $0.notes.lowercased().contains(search) ||
+                ($0.handNotes?.lowercased().contains(search) ?? false) ||
                 ($0.venue?.lowercased().contains(search) ?? false) ||
                 ($0.stakes?.lowercased().contains(search) ?? false) ||
                 ($0.variant?.lowercased().contains(search) ?? false) ||
+                $0.attachedHands.contains(where: { hand in
+                    hand.playerHands.joined(separator: " ").lowercased().contains(search) ||
+                    hand.resultSummary.joined(separator: " ").lowercased().contains(search) ||
+                    (hand.note?.lowercased().contains(search) ?? false)
+                }) ||
                 $0.gameType.rawValue.lowercased().contains(search)
             }
         }
@@ -322,6 +350,11 @@ class SessionStore: ObservableObject {
             sessions[i] = session
         }
     }
+
+    func addAttachedHand(_ hand: PokerSession.AttachedHand, toSessionID id: UUID) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[i].attachedHands.append(hand)
+    }
     
     func deleteSession(_ session: PokerSession) {
         SessionImageStore.delete(imageIds: session.imageIds)
@@ -351,7 +384,12 @@ class SessionStore: ObservableObject {
             let stakes = s.stakes ?? ""
             let venue = s.venue ?? ""
             let variant = s.displayVariant
-            let notes = s.notes + (s.handNotes ?? "")
+            let notes = [s.notes, s.handNotes]
+                .compactMap { value -> String? in
+                    guard let value, !value.isEmpty else { return nil }
+                    return value
+                }
+                .joined(separator: "\n\n")
             let row = [
                 escapeCSV(date),
                 escapeCSV(s.gameType.rawValue),
@@ -396,17 +434,61 @@ class SessionStore: ObservableObject {
     }
     
     private func loadSessions() {
+        let localUpdatedAt = UserDefaults.standard.double(forKey: saveUpdatedAtKey)
+        let cloudUpdatedAt = cloudStore.double(forKey: cloudSaveUpdatedAtKey)
+
+        if cloudUpdatedAt > localUpdatedAt,
+           let cloudData = cloudStore.data(forKey: cloudSaveKey),
+           let cloudDecoded = decodeSessions(from: cloudData) {
+            sessions = sortedSessions(cloudDecoded)
+            UserDefaults.standard.set(cloudData, forKey: saveKey)
+            UserDefaults.standard.set(cloudUpdatedAt, forKey: saveUpdatedAtKey)
+            return
+        }
+
         guard let data = UserDefaults.standard.data(forKey: saveKey),
-              let decoded = try? JSONDecoder().decode([PokerSession].self, from: data) else {
+              let decoded = decodeSessions(from: data) else {
             sessions = []
             return
         }
-        sessions = decoded.sorted { $0.date > $1.date }
+        sessions = sortedSessions(decoded)
     }
     
     private func saveSessions() {
-        if let encoded = try? JSONEncoder().encode(sessions) {
-            UserDefaults.standard.set(encoded, forKey: saveKey)
-        }
+        guard let encoded = try? JSONEncoder().encode(sessions) else { return }
+        let updatedAt = cloudSyncUpdatedAt ?? Date().timeIntervalSince1970
+
+        UserDefaults.standard.set(encoded, forKey: saveKey)
+        UserDefaults.standard.set(updatedAt, forKey: saveUpdatedAtKey)
+
+        guard !isApplyingCloudSync else { return }
+
+        // NSUbiquitousKeyValueStore has tight value limits; skip oversized payloads.
+        guard encoded.count <= 900_000 else { return }
+        cloudStore.set(encoded, forKey: cloudSaveKey)
+        cloudStore.set(updatedAt, forKey: cloudSaveUpdatedAtKey)
+        cloudStore.synchronize()
+    }
+
+    private func syncFromCloudIfNewer() {
+        let cloudUpdatedAt = cloudStore.double(forKey: cloudSaveUpdatedAtKey)
+        let localUpdatedAt = UserDefaults.standard.double(forKey: saveUpdatedAtKey)
+        guard cloudUpdatedAt > localUpdatedAt else { return }
+        guard let cloudData = cloudStore.data(forKey: cloudSaveKey),
+              let decoded = decodeSessions(from: cloudData) else { return }
+
+        isApplyingCloudSync = true
+        cloudSyncUpdatedAt = cloudUpdatedAt
+        sessions = sortedSessions(decoded)
+        cloudSyncUpdatedAt = nil
+        isApplyingCloudSync = false
+    }
+
+    private func decodeSessions(from data: Data) -> [PokerSession]? {
+        try? JSONDecoder().decode([PokerSession].self, from: data)
+    }
+
+    private func sortedSessions(_ source: [PokerSession]) -> [PokerSession] {
+        source.sorted { $0.date > $1.date }
     }
 }

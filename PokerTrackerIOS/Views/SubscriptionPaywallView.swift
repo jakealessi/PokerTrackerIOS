@@ -122,6 +122,11 @@ struct SubscriptionPaywallView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .onChange(of: subscriptionStore.isSubscribed) { _, newValue in
+                if newValue {
+                    dismiss()
+                }
+            }
             .onDisappear {
                 activeTask?.cancel()
             }

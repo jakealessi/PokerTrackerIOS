@@ -13,25 +13,28 @@ struct SessionDetailView: View {
     @State private var showingEdit = false
     @State private var showingDeleteConfirm = false
     @State private var showingShareSheet = false
+    @State private var showingOddsCalculator = false
     @State private var shareActivityItems: [Any] = []
     @State private var fullScreenImageIndex: Int? = nil
     
     var body: some View {
-        ScrollView {
+        let s = currentSession
+        return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 amountCard
                 detailsSection
-                if !session.imageIds.isEmpty { imagesSection }
-                if !session.notes.isEmpty { notesSection(session.notes) }
-                if let handNotes = session.handNotes, !handNotes.isEmpty { handNotesSection(handNotes) }
+                if !s.imageIds.isEmpty { imagesSection }
+                if !s.attachedHands.isEmpty { attachedHandsSection }
+                if !s.notes.isEmpty { notesSection(s.notes) }
+                if let handNotes = s.handNotes, !handNotes.isEmpty { handNotesSection(handNotes) }
             }
             .padding()
         }
-        .navigationTitle(session.displayVariantAbbreviation)
+        .navigationTitle(s.displayVariantAbbreviation)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(session.displayVariantAbbreviation)
+                Text(s.displayVariantAbbreviation)
                     .font(.headline)
             }
             ToolbarItem(placement: .primaryAction) {
@@ -40,6 +43,11 @@ struct SessionDetailView: View {
                         showingEdit = true
                     } label: {
                         Label("Edit", systemImage: "pencil")
+                    }
+                    Button {
+                        showingOddsCalculator = true
+                    } label: {
+                        Label("Add Hand", systemImage: "percent")
                     }
                     Button {
                         shareActivityItems = sessionShareItems
@@ -51,7 +59,7 @@ struct SessionDetailView: View {
                         if settingsStore.settings.confirmBeforeDelete {
                             showingDeleteConfirm = true
                         } else {
-                            sessionStore.deleteSession(session)
+                            sessionStore.deleteSession(s)
                             dismiss()
                         }
                     } label: {
@@ -64,7 +72,10 @@ struct SessionDetailView: View {
             }
         }
         .sheet(isPresented: $showingEdit) {
-            EditSessionView(session: session)
+            EditSessionView(session: s)
+        }
+        .sheet(isPresented: $showingOddsCalculator) {
+            OddsCalculatorView(preselectedSessionID: s.id)
         }
         .sheet(isPresented: $showingShareSheet) {
             ActivitySheet(activityItems: shareActivityItems)
@@ -74,7 +85,7 @@ struct SessionDetailView: View {
             set: { fullScreenImageIndex = $0?.index }
         )) { wrapper in
             FullScreenPhotoViewer(
-                imageIds: session.imageIds,
+                imageIds: s.imageIds,
                 selectedIndex: wrapper.index,
                 onDismiss: { fullScreenImageIndex = nil }
             )
@@ -82,7 +93,7 @@ struct SessionDetailView: View {
         .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
-                sessionStore.deleteSession(session)
+                sessionStore.deleteSession(s)
                 dismiss()
             }
         } message: {
@@ -91,28 +102,29 @@ struct SessionDetailView: View {
     }
     
     private var amountCard: some View {
-        VStack(spacing: 8) {
+        let s = currentSession
+        return VStack(spacing: 8) {
             if settingsStore.settings.showSessionNumbers {
-                Text("Session #\(sessionStore.displayNumber(for: session) ?? 0)")
+                Text("Session #\(sessionStore.displayNumber(for: s) ?? 0)")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
             }
-            Text(formattedAmount(session.amount))
+            Text(formattedAmount(s.amount))
                 .font(.system(size: 36, weight: .bold))
-                .foregroundStyle(session.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
-            Text(session.date, style: .date)
+                .foregroundStyle(s.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
+            Text(s.date, style: .date)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.secondaryText)
-            if let start = session.startTime, let end = session.endTime {
+            if let start = s.startTime, let end = s.endTime {
                 Text(timeRangeString(from: start, to: end))
                     .font(.caption)
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
-            } else if let start = session.startTime {
+            } else if let start = s.startTime {
                 Text("Started \(timeString(from: start))")
                     .font(.caption)
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
-            } else if let end = session.endTime {
+            } else if let end = s.endTime {
                 Text("Ended \(timeString(from: end))")
                     .font(.caption)
                     .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
@@ -127,50 +139,51 @@ struct SessionDetailView: View {
     }
     
     private var detailsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let s = currentSession
+        return VStack(alignment: .leading, spacing: 16) {
             // Game — format, variant, stakes
             detailCard(title: "Game") {
-                detailRow("Format", session.gameType.abbreviation)
-                detailRow("Variant", session.displayVariantAbbreviation)
-                if let stakes = session.stakes, !stakes.isEmpty {
+                detailRow("Format", s.gameType.abbreviation)
+                detailRow("Variant", s.displayVariantAbbreviation)
+                if let stakes = s.stakes, !stakes.isEmpty {
                     detailRow("Stakes", stakes)
                 }
             }
             
             // Cash game stats
-            if session.gameType == .cash || session.gameType == .plo || session.gameType == .homeGame || session.gameType == .online,
-               session.hoursPlayed != nil || session.hourlyRate != nil {
+            if s.gameType == .cash || s.gameType == .plo || s.gameType == .homeGame || s.gameType == .online,
+               s.hoursPlayed != nil || s.hourlyRate != nil {
                 detailCard(title: "Session") {
-                    if let hours = session.hoursPlayed {
+                    if let hours = s.hoursPlayed {
                         detailRow("Hours Played", "\(String(format: "%.1f", hours))")
                     }
-                    if let rate = session.hourlyRate {
+                    if let rate = s.hourlyRate {
                         detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency) + "/hr")
                     }
                 }
             }
             
             // Tournament stats
-            if session.gameType == .tournament || session.gameType == .sitAndGo {
-                let hasTournamentData = session.buyIn != nil || session.cashOut != nil || session.tournamentPosition != nil || (session.rebuys ?? 0) > 0 || session.tournamentROI != nil || session.hoursPlayed != nil
+            if s.gameType == .tournament || s.gameType == .sitAndGo {
+                let hasTournamentData = s.buyIn != nil || s.cashOut != nil || s.tournamentPosition != nil || (s.rebuys ?? 0) > 0 || s.tournamentROI != nil || s.hoursPlayed != nil
                 if hasTournamentData {
                     detailCard(title: "Tournament") {
-                        if let buyIn = session.buyIn {
+                        if let buyIn = s.buyIn {
                             detailRow("Buy-in", PokerSession.formatCurrency(buyIn, currency: settingsStore.settings.currency))
                         }
-                        if let cashOut = session.cashOut {
+                        if let cashOut = s.cashOut {
                             detailRow("Cash Out", PokerSession.formatCurrency(cashOut, currency: settingsStore.settings.currency))
                         }
-                        if let pos = session.tournamentPosition {
+                        if let pos = s.tournamentPosition {
                             detailRow("Position", "\(pos)")
                         }
-                        if let rebuys = session.rebuys, rebuys > 0 {
+                        if let rebuys = s.rebuys, rebuys > 0 {
                             detailRow("Rebuys", "\(rebuys)")
                         }
-                        if let roi = session.tournamentROI {
+                        if let roi = s.tournamentROI {
                             detailRow("ROI", String(format: "%.0f%%", roi))
                         }
-                        if let hours = session.hoursPlayed {
+                        if let hours = s.hoursPlayed {
                             detailRow("Duration", "\(String(format: "%.1f", hours)) hrs")
                         }
                     }
@@ -178,7 +191,7 @@ struct SessionDetailView: View {
             }
             
             // Venue
-            if let venue = session.venue, !venue.isEmpty {
+            if let venue = s.venue, !venue.isEmpty {
                 detailCard(title: "Location") {
                     detailRow("Venue", venue)
                 }
@@ -228,13 +241,14 @@ struct SessionDetailView: View {
     }
     
     private var imagesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let s = currentSession
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Photos")
                 .font(.headline)
             LazyVGrid(columns: [
                 GridItem(.adaptive(minimum: 100), spacing: 8)
             ], spacing: 8) {
-                ForEach(Array(session.imageIds.enumerated()), id: \.element) { index, imageId in
+                ForEach(Array(s.imageIds.enumerated()), id: \.element) { index, imageId in
                     SessionImageView(imageId: imageId)
                         .aspectRatio(1, contentMode: .fill)
                         .frame(minHeight: 100)
@@ -284,6 +298,59 @@ struct SessionDetailView: View {
                 .fill(AppTheme.cardBackground)
         )
     }
+
+    private var attachedHandsSection: some View {
+        let s = currentSession
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Attached Hands")
+                .font(.headline)
+            ForEach(Array(s.attachedHands.enumerated()), id: \.element.id) { index, hand in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Hand \(index + 1) • \(hand.game)")
+                        .font(.subheadline.weight(.semibold))
+                    if !hand.playerHands.isEmpty {
+                        Text(hand.playerHands.joined(separator: " vs "))
+                            .font(.subheadline)
+                    }
+                    if let board = hand.board, !board.isEmpty {
+                        Text("Board: \(board)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let dead = hand.deadCards, !dead.isEmpty {
+                        Text("Dead: \(dead)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(hand.resultSummary, id: \.self) { line in
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let note = hand.note, !note.isEmpty {
+                        Text("Hand Note")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                        Text(note)
+                            .font(.subheadline)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(UIColor.secondarySystemGroupedBackground))
+                )
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(AppTheme.cardBackground)
+        )
+    }
     
     private struct IndexWrapper: Identifiable {
         let index: Int
@@ -298,27 +365,44 @@ struct SessionDetailView: View {
         }
         return PokerSession.formatCurrency(value, currency: currency)
     }
+
+    private var currentSession: PokerSession {
+        sessionStore.sessions.first(where: { $0.id == session.id }) ?? session
+    }
     
     private var sessionShareText: String {
+        let s = currentSession
         var lines = [
-            "\(session.displayVariantAbbreviation) \(session.gameType.abbreviation) • \(formattedAmount(session.amount))",
-            session.date.formatted(date: .long, time: .omitted)
+            "\(s.displayVariantAbbreviation) \(s.gameType.abbreviation) • \(formattedAmount(s.amount))",
+            s.date.formatted(date: .long, time: .omitted)
         ]
-        if let stakes = session.stakes, !stakes.isEmpty { lines.append("Stakes: \(stakes)") }
-        if let venue = session.venue, !venue.isEmpty { lines.append("Venue: \(venue)") }
-        if let start = session.startTime, let end = session.endTime {
+        if let stakes = s.stakes, !stakes.isEmpty { lines.append("Stakes: \(stakes)") }
+        if let venue = s.venue, !venue.isEmpty { lines.append("Venue: \(venue)") }
+        if let start = s.startTime, let end = s.endTime {
             lines.append("\(timeString(from: start)) – \(timeString(from: end))")
         }
-        if let hours = session.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
-        if let roi = session.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
-        if !session.notes.isEmpty { lines.append("Notes: \(session.notes)") }
-        if let handNotes = session.handNotes, !handNotes.isEmpty { lines.append("Hand Notes: \(handNotes)") }
+        if let hours = s.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
+        if let roi = s.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
+        if !s.notes.isEmpty { lines.append("Notes: \(s.notes)") }
+        if let handNotes = s.handNotes, !handNotes.isEmpty { lines.append("Hand Notes: \(handNotes)") }
+        if !s.attachedHands.isEmpty {
+            lines.append("Attached Hands: \(s.attachedHands.count)")
+            for (index, hand) in s.attachedHands.enumerated() {
+                lines.append("Hand \(index + 1): \(hand.playerHands.joined(separator: " vs "))")
+                if !hand.resultSummary.isEmpty {
+                    lines.append(contentsOf: hand.resultSummary)
+                }
+                if let note = hand.note, !note.isEmpty {
+                    lines.append("Hand Note: \(note)")
+                }
+            }
+        }
         return lines.joined(separator: "\n")
     }
     
-    /// Text summary for sharing (no images)
     private var sessionShareItems: [Any] {
-        [sessionShareText]
+        let images = currentSession.imageIds.compactMap { SessionImageStore.loadImage(imageId: $0) }
+        return [sessionShareText] + images
     }
 }
 

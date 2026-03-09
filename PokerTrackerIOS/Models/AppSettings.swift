@@ -48,12 +48,16 @@ struct AppSettings: Codable {
     var geminiAPIKey: String?
     var openAIAPIKey: String?
     var profitLossColorScheme: ProfitLossColorScheme
+    var workerBaseURL: String
+
+    static let defaultWorkerBaseURL = "https://poker-tracker-ai-proxy.pokerbankrollai.workers.dev"
 
     enum CodingKeys: String, CodingKey {
         case currency, startingBankroll, defaultGameType
         case defaultVariant, defaultStakes, showHourlyRate, hapticFeedback
         case use24HourTime, useCompactCurrency, showSessionNumbers, confirmBeforeDelete
         case hasSeenOnboarding, geminiAPIKey, openAIAPIKey, profitLossColorScheme
+        case workerBaseURL
     }
 
     init(
@@ -71,7 +75,8 @@ struct AppSettings: Codable {
         hasSeenOnboarding: Bool,
         geminiAPIKey: String?,
         openAIAPIKey: String?,
-        profitLossColorScheme: ProfitLossColorScheme
+        profitLossColorScheme: ProfitLossColorScheme,
+        workerBaseURL: String = AppSettings.defaultWorkerBaseURL
     ) {
         self.currency = currency
         self.startingBankroll = startingBankroll
@@ -88,6 +93,7 @@ struct AppSettings: Codable {
         self.geminiAPIKey = geminiAPIKey
         self.openAIAPIKey = openAIAPIKey
         self.profitLossColorScheme = profitLossColorScheme
+        self.workerBaseURL = workerBaseURL
     }
 
     static let `default` = AppSettings(
@@ -125,6 +131,7 @@ struct AppSettings: Codable {
         geminiAPIKey = try c.decodeIfPresent(String.self, forKey: .geminiAPIKey)
         openAIAPIKey = try c.decodeIfPresent(String.self, forKey: .openAIAPIKey)
         profitLossColorScheme = try c.decodeIfPresent(ProfitLossColorScheme.self, forKey: .profitLossColorScheme) ?? .default
+        workerBaseURL = try c.decodeIfPresent(String.self, forKey: .workerBaseURL) ?? AppSettings.defaultWorkerBaseURL
     }
 
     func encode(to encoder: Encoder) throws {
@@ -144,5 +151,6 @@ struct AppSettings: Codable {
         try c.encodeIfPresent(geminiAPIKey, forKey: .geminiAPIKey)
         try c.encodeIfPresent(openAIAPIKey, forKey: .openAIAPIKey)
         try c.encode(profitLossColorScheme, forKey: .profitLossColorScheme)
+        try c.encode(workerBaseURL, forKey: .workerBaseURL)
     }
 }

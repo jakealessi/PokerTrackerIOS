@@ -14,13 +14,44 @@ class SettingsStore: ObservableObject {
     }
     
     private static let settingsKey = "poker_settings"
+    private static let settingsUpdatedAtKey = "poker_settings_updated_at"
+    private static let cloudSettingsKey = "icloud_poker_settings"
+    private static let cloudSettingsUpdatedAtKey = "icloud_poker_settings_updated_at"
+    private let cloudStore = NSUbiquitousKeyValueStore.default
+    private var cloudObserver: NSObjectProtocol?
+    private var isApplyingCloudSync = false
+    private var cloudSyncUpdatedAt: TimeInterval?
     
     init() {
-        if let data = UserDefaults.standard.data(forKey: Self.settingsKey),
-           let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
+        let localUpdatedAt = UserDefaults.standard.double(forKey: Self.settingsUpdatedAtKey)
+        let cloudUpdatedAt = cloudStore.double(forKey: Self.cloudSettingsUpdatedAtKey)
+        if cloudUpdatedAt > localUpdatedAt,
+           let cloudData = cloudStore.data(forKey: Self.cloudSettingsKey),
+           let cloudDecoded = try? JSONDecoder().decode(AppSettings.self, from: cloudData) {
+            settings = cloudDecoded
+            UserDefaults.standard.set(cloudData, forKey: Self.settingsKey)
+            UserDefaults.standard.set(cloudUpdatedAt, forKey: Self.settingsUpdatedAtKey)
+        } else if let data = UserDefaults.standard.data(forKey: Self.settingsKey),
+                  let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
             settings = decoded
         } else {
             settings = .default
+        }
+
+        cloudObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: cloudStore,
+            queue: .main
+        ) { [weak self] _ in
+            self?.syncFromCloudIfNewer()
+        }
+        cloudStore.synchronize()
+        syncFromCloudIfNewer()
+    }
+
+    deinit {
+        if let observer = cloudObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
     
@@ -29,8 +60,29 @@ class SettingsStore: ObservableObject {
     }
     
     private func save() {
-        if let encoded = try? JSONEncoder().encode(settings) {
-            UserDefaults.standard.set(encoded, forKey: Self.settingsKey)
-        }
+        guard let encoded = try? JSONEncoder().encode(settings) else { return }
+        let updatedAt = cloudSyncUpdatedAt ?? Date().timeIntervalSince1970
+
+        UserDefaults.standard.set(encoded, forKey: Self.settingsKey)
+        UserDefaults.standard.set(updatedAt, forKey: Self.settingsUpdatedAtKey)
+
+        guard !isApplyingCloudSync else { return }
+        cloudStore.set(encoded, forKey: Self.cloudSettingsKey)
+        cloudStore.set(updatedAt, forKey: Self.cloudSettingsUpdatedAtKey)
+        cloudStore.synchronize()
+    }
+
+    private func syncFromCloudIfNewer() {
+        let cloudUpdatedAt = cloudStore.double(forKey: Self.cloudSettingsUpdatedAtKey)
+        let localUpdatedAt = UserDefaults.standard.double(forKey: Self.settingsUpdatedAtKey)
+        guard cloudUpdatedAt > localUpdatedAt else { return }
+        guard let cloudData = cloudStore.data(forKey: Self.cloudSettingsKey),
+              let decoded = try? JSONDecoder().decode(AppSettings.self, from: cloudData) else { return }
+
+        isApplyingCloudSync = true
+        cloudSyncUpdatedAt = cloudUpdatedAt
+        settings = decoded
+        cloudSyncUpdatedAt = nil
+        isApplyingCloudSync = false
     }
 }
