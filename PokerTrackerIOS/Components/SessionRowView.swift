@@ -13,6 +13,7 @@ struct SessionRowView: View {
     
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    private var resultColor: Color { session.isWin ? winColor : lossColor }
     
     private var gameInfoText: String {
         var parts: [String] = [session.displayVariantAbbreviation, session.gameType.abbreviation]
@@ -31,54 +32,88 @@ struct SessionRowView: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(spacing: 12) {
             if settingsStore.settings.showSessionNumbers {
-                // Session number badge (dynamic: earliest = #1)
                 Text("#\(displayNumber ?? 0)")
-                    .font(.caption2)
-                    .fontWeight(.bold)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(session.isWin ? winColor : lossColor)
-                    .clipShape(Circle())
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [resultColor, resultColor.opacity(0.75)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
             }
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(amountText)
-                    .font(.headline)
-                    .foregroundStyle(session.isWin ? winColor : lossColor)
-                
-                Text(gameInfoText)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(amountText)
+                        .font(.system(.headline, design: .rounded))
+                        .foregroundStyle(resultColor)
+
+                    Spacer(minLength: 8)
+
+                    Text(session.date, style: .date)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                HStack(spacing: 4) {
+                    Text(gameInfoText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let hours = session.hoursPlayed, hours > 0 {
+                        Text("·")
+                            .foregroundStyle(.quaternary)
+                        Text("\(String(format: "%.1f", hours))h")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 
                 if let venue = session.venue, !venue.isEmpty {
                     HStack(spacing: 3) {
-                        Image(systemName: "mappin.circle")
-                            .font(.caption2)
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 9))
                         Text(venue)
                             .font(.caption2)
                     }
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
+                    .foregroundStyle(.tertiary)
                 }
-            }
-            
-            Spacer(minLength: 8)
-            
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(session.date, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
-                if let hours = session.hoursPlayed, hours > 0 {
-                    Text("\(String(format: "%.1f", hours)) hrs")
-                        .font(.caption2)
-                        .foregroundStyle(AppTheme.secondaryText.opacity(0.8))
+
+                if !session.tags.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(session.tags.prefix(3), id: \.self) { tag in
+                            if let t = SessionTag(rawValue: tag) {
+                                HStack(spacing: 2) {
+                                    Image(systemName: t.icon)
+                                    Text(t.rawValue)
+                                }
+                                .font(.system(size: 9, weight: .medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2.5)
+                                .background(t.color.opacity(0.12))
+                                .foregroundStyle(t.color)
+                                .clipShape(Capsule())
+                            }
+                        }
+                        if session.tags.count > 3 {
+                            Text("+\(session.tags.count - 3)")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
             }
         }
-        .padding(12)
-        .background(AppTheme.cardBackground)
-        .cornerRadius(6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .cardStyle()
     }
 }

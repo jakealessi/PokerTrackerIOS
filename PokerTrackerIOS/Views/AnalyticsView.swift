@@ -91,12 +91,16 @@ struct AnalyticsView: View {
 
     private var chartsLockedSection: some View {
         VStack(spacing: 16) {
-            Image(systemName: "chart.line.uptrend.xyaxis.circle")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(AppTheme.accent.opacity(0.6))
+            ZStack {
+                Circle()
+                    .fill(AppTheme.accent.opacity(0.08))
+                    .frame(width: 72, height: 72)
+                Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(AppTheme.accent.opacity(0.5))
+            }
             Text("Charts are part of Premium")
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.title3.weight(.semibold))
             Text("Subscribe to see cumulative profit, win/loss, monthly results, and variant breakdown.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -108,17 +112,18 @@ struct AnalyticsView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(AppTheme.accent)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
+                            .fill(AppTheme.accent)
+                    )
                     .foregroundStyle(.white)
-                    .cornerRadius(AppTheme.smallCornerRadius)
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
         }
         .padding(24)
         .frame(maxWidth: .infinity)
-        .background(AppTheme.cardBackground)
-        .cornerRadius(AppTheme.cardCornerRadius)
+        .cardStyle()
     }
 
     private var dateRangeBanner: some View {
@@ -133,11 +138,10 @@ struct AnalyticsView: View {
                 sessionStore.filterDateFrom = nil
                 sessionStore.filterDateTo = nil
             }
-            .font(.subheadline)
+            .font(.subheadline.weight(.medium))
         }
         .padding(12)
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .subtleCard()
     }
     
     private var chartDomain: ClosedRange<Date> {
@@ -187,19 +191,20 @@ struct AnalyticsView: View {
     }
     
     private func summaryCard(_ title: String, _ value: String, _ color: Color) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(AppTheme.secondaryText)
+        VStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.tertiary)
+                .kerning(0.5)
             Text(value)
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.system(.title3, design: .rounded).weight(.bold))
                 .foregroundStyle(color)
+                .monospacedDigit()
         }
         .frame(maxWidth: .infinity)
-        .padding(12)
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .cardStyle()
     }
     
     // MARK: - Profit Over Time Line Chart
@@ -258,8 +263,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
     
     // MARK: - Win/Loss Donut
@@ -305,8 +309,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
 
     // MARK: - Drawdown Chart
@@ -366,8 +369,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
     
     // MARK: - Monthly Bar Chart
@@ -412,8 +414,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
 
     // MARK: - Weekday Performance
@@ -451,8 +452,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
     
     // MARK: - Variant Breakdown
@@ -491,8 +491,7 @@ struct AnalyticsView: View {
             }
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
     
     // MARK: - Detail Stats
@@ -518,8 +517,7 @@ struct AnalyticsView: View {
             detailRow("Current Streak", sessionStore.currentWinStreak > 0 ? "\(sessionStore.currentWinStreak)W" : "\(sessionStore.currentLossStreak)L", sessionStore.currentWinStreak > 0 ? winColor : lossColor)
         }
         .padding()
-        .background(AppTheme.cardBackground)
-        .cornerRadius(10)
+        .cardStyle()
     }
     
     private func detailRow(_ label: String, _ value: String, _ color: Color) -> some View {

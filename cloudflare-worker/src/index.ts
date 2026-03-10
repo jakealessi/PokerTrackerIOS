@@ -91,6 +91,8 @@ function buildSystemPrompt(sessionContext: string): string {
     day: "numeric",
   });
 
+  const tagList = "A-Game, Tilt, Tough Table, Soft Table, Bad Beat, Run Good, Tired, Focused, Marathon, Confident, Deep Stack, Stressful, Profitable, Experimental, Big Bluff";
+
   let prompt = `You are a poker session logging assistant inside a tracking app. You help log new sessions and update existing ones.
 
 REFERENCE DATE (critical):
@@ -103,20 +105,56 @@ CAPABILITIES:
 2. UPDATE EXISTING SESSION - modify a session by its # number
 3. ASK FOR DETAILS - if user gives very minimal info, ask follow-up questions
 
+CRITICAL — AMOUNT EXTRACTION (READ CAREFULLY):
+- "amount" is ALWAYS the user's FINAL NET profit or loss — the money they actually took home.
+- LOOK FOR KEYWORDS: "made", "won", "up", "lost", "down" followed by a dollar figure. That figure is the amount.
+- IGNORE peak/high-water-mark numbers. Words like "was up", "originally up", "peaked at" describe mid-session swings, NOT the final result.
+- EXAMPLE: "made 600 bucks ... was originally up 1200 but punted" → amount is 600 (NOT 1200). The 1200 is a mid-session peak. The "made 600" is what they took home. Put "Was originally up 1200 but punted" into notes.
+- EXAMPLE: "won 300 but was up 800 at one point" → amount is 300 (NOT 800).
+- EXAMPLE: "lost 500, was stuck 1000 earlier but fought back" → amount is -500.
+- If user says "bought in for X, cashed out for Y", compute amount as Y - X.
+- Positive amount = win, negative = loss.
+- WHEN IN DOUBT: use the number attached to "made/won/lost/down/up" at the START of the message, not numbers mentioned as past peaks.
+
+NOTES & HAND NOTES:
+- Any extra context the user provides beyond the core session data (amount, stakes, hours, venue, variant) should go into "notes".
+- Examples: "was on tilt", "table was really soft", "ran bad but played well", "was up 1200 but punted half back" — put these in "notes" as-is.
+- Do NOT ignore this context. Capture it faithfully.
+
+TAGS (strict rules):
+- Available tags: ${tagList}
+- ONLY add a tag when the user EXPLICITLY mentions the concept using clear, unambiguous language. Never infer or guess tags.
+- Do NOT add tags based on the session result alone. Winning does NOT mean "Profitable" or "Run Good". Losing does NOT mean "Bad Beat" or "Tilt".
+- Each tag requires the user to specifically describe that experience:
+  • "Tilt" — user says "tilt", "tilted", "on tilt", "steaming", "lost my cool"
+  • "Tired" — user says "tired", "exhausted", "sleepy", "fatigued"
+  • "Focused" — user says "focused", "in the zone", "locked in", "dialed in"
+  • "A-Game" — user says "A-game", "played great", "played my best", "peak performance"
+  • "Bad Beat" — user says "bad beat", "got sucked out", "cooler", "got rivered"
+  • "Run Good" — user says "run good", "running hot", "heater", "couldn't lose"
+  • "Soft Table" — user says "soft table", "soft game", "fishy", "fish", "easy game"
+  • "Tough Table" — user says "tough table", "tough lineup", "all regs", "tough game"
+  • "Marathon" — user says "marathon", "long session", "grind" AND hours >= 6
+  • "Deep Stack" — user says "deep stack", "deep stacked"
+  • "Big Bluff" — user says "big bluff", "bluffed", "hero call"
+  • "Confident" — user says "confident", "felt confident"
+  • "Stressful" — user says "stressful", "stressed", "sweating", "nervous"
+  • "Profitable" — user says "crushing", "printing money", "crushing it"
+  • "Experimental" — user says "experimental", "trying new", "new strategy", "testing"
+- When in doubt, do NOT add the tag. Return an empty array [] if no tags are explicitly mentioned.
+
 RULES FOR NEW SESSIONS:
 - If the user gives ONLY an amount (e.g. "won 50" or "lost 200") with no other details, ask a SHORT friendly question to get more info. Ask about 2-3 things at once (like stakes, game type, hours, venue).
 - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
 - When you have enough info, respond with ONLY a JSON object:
-  {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null}
+  {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
 - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
-- Positive amount = win, negative = loss.
-- If user says "bought in for X, cashed out for Y", compute amount as Y - X.
 - Default variant to "No Limit Hold'em" and format to "Cash Game" if not mentioned.
 
 RULES FOR UPDATES:
 - If the user says something like "update session 3" or "change session #5 stakes to 2/5", respond with:
   {"action": "update", "sessionNumber": number, "fields": {"fieldName": newValue, ...}}
-- Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes
+- Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
 - If the user wants to update but doesn't specify which session, ask them which session number.
 
 GENERAL RULES:
@@ -134,18 +172,30 @@ GENERAL RULES:
 // Provider calls
 // ---------------------------------------------------------------------------
 
+const GEMINI_MODEL_BASIC = "gemini-2.5-flash-lite";
+const GEMINI_MODEL_ADVANCED = "gemini-2.5-pro";
+const MESSAGE_LENGTH_THRESHOLD = 250;
+
+function pickGeminiModel(messageLength: number): string {
+  return messageLength > MESSAGE_LENGTH_THRESHOLD ? GEMINI_MODEL_ADVANCED : GEMINI_MODEL_BASIC;
+}
+
 async function callGemini(
   messages: HistoryMessage[],
   systemPrompt: string,
   apiKey: string,
+  model?: string,
 ): Promise<string> {
   const contents = messages.map((m) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: m.text }],
   }));
 
+  const userMsg = messages.find((m) => m.role === "user")?.text ?? "";
+  const chosenModel = model ?? pickGeminiModel(userMsg.length);
+
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${chosenModel}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -164,11 +214,9 @@ async function callGemini(
 
   const json = (await res.json()) as Record<string, unknown>;
   const candidates = json.candidates as Array<Record<string, unknown>> | undefined;
-  const text = (
-    (
-      ((candidates?.[0]?.content as Record<string, unknown>)?.parts as Array<Record<string, unknown>>)?.[0]
-    )?.text as string | undefined
-  );
+  const parts = ((candidates?.[0]?.content as Record<string, unknown>)?.parts as Array<Record<string, unknown>>) ?? [];
+  const responsePart = parts.filter((p) => !p.thought).pop();
+  const text = responsePart?.text as string | undefined;
   if (!text) throw new ProviderError(500, "Empty Gemini response");
   return text;
 }
@@ -301,6 +349,7 @@ function classifyResponse(rawText: string): NormalizedResponse {
     tournamentPosition: toNumber(parsed.tournamentPosition) ?? null,
     rebuys: toNumber(parsed.rebuys) ?? null,
     handNotes: parsed.handNotes ?? null,
+    tags: Array.isArray(parsed.tags) ? parsed.tags : [],
   };
 
   if (!isLoggable(session)) {
@@ -445,7 +494,19 @@ async function handleSessionCrafter(request: Request, env: Env): Promise<Respons
       try {
         rawText = await withRetry(() => callGemini(fullMessages, systemPrompt, env.GEMINI_API_KEY));
       } catch (err) {
-        if (hasOpenAI) {
+        if (err instanceof ProviderError && err.status === 429) {
+          try {
+            rawText = await callGemini(fullMessages, systemPrompt, env.GEMINI_API_KEY, GEMINI_MODEL_BASIC);
+          } catch (fallbackErr) {
+            if (hasOpenAI) {
+              rawText = await withRetry(() =>
+                callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!),
+              );
+            } else {
+              throw fallbackErr;
+            }
+          }
+        } else if (hasOpenAI) {
           rawText = await withRetry(() =>
             callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!),
           );

@@ -12,9 +12,7 @@ struct SessionDetailView: View {
     let session: PokerSession
     @State private var showingEdit = false
     @State private var showingDeleteConfirm = false
-    @State private var showingShareSheet = false
     @State private var showingOddsCalculator = false
-    @State private var shareActivityItems: [Any] = []
     @State private var fullScreenImageIndex: Int? = nil
     
     var body: some View {
@@ -23,6 +21,7 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 amountCard
                 detailsSection
+                if !s.tags.isEmpty { tagsSection }
                 if !s.imageIds.isEmpty { imagesSection }
                 if !s.attachedHands.isEmpty { attachedHandsSection }
                 if !s.notes.isEmpty { notesSection(s.notes) }
@@ -50,8 +49,7 @@ struct SessionDetailView: View {
                         Label("Add Hand", systemImage: "percent")
                     }
                     Button {
-                        shareActivityItems = sessionShareItems
-                        showingShareSheet = true
+                        presentShareSheet(items: sessionShareItems)
                     } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
@@ -77,9 +75,6 @@ struct SessionDetailView: View {
         .sheet(isPresented: $showingOddsCalculator) {
             OddsCalculatorView(preselectedSessionID: s.id)
         }
-        .sheet(isPresented: $showingShareSheet) {
-            ActivitySheet(activityItems: shareActivityItems)
-        }
         .fullScreenCover(item: Binding(
             get: { fullScreenImageIndex.map { IndexWrapper(index: $0) } },
             set: { fullScreenImageIndex = $0?.index }
@@ -101,40 +96,52 @@ struct SessionDetailView: View {
         }
     }
     
+    private var resultColor: Color {
+        let s = currentSession
+        return s.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor
+    }
+
     private var amountCard: some View {
         let s = currentSession
-        return VStack(spacing: 8) {
+        return VStack(spacing: 10) {
             if settingsStore.settings.showSessionNumbers {
-                Text("Session #\(sessionStore.displayNumber(for: s) ?? 0)")
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                Text("SESSION #\(sessionStore.displayNumber(for: s) ?? 0)")
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
+                    .kerning(1)
             }
             Text(formattedAmount(s.amount))
-                .font(.system(size: 36, weight: .bold))
-                .foregroundStyle(s.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
+                .font(.system(size: 40, weight: .bold, design: .rounded))
+                .foregroundStyle(resultColor)
+                .contentTransition(.numericText())
             Text(s.date, style: .date)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.secondaryText)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
             if let start = s.startTime, let end = s.endTime {
                 Text(timeRangeString(from: start, to: end))
                     .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
+                    .foregroundStyle(.tertiary)
             } else if let start = s.startTime {
                 Text("Started \(timeString(from: start))")
                     .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
+                    .foregroundStyle(.tertiary)
             } else if let end = s.endTime {
                 Text("Ended \(timeString(from: end))")
                     .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.9))
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(24)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 24)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(AppTheme.cardBackground)
+                .shadow(color: resultColor.opacity(0.12), radius: 12, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(resultColor.opacity(0.15), lineWidth: 1)
         )
     }
     
@@ -199,20 +206,56 @@ struct SessionDetailView: View {
         }
     }
     
+    private var tagsSection: some View {
+        let s = currentSession
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("TAGS")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
+            FlowLayout(spacing: 6) {
+                ForEach(s.tags, id: \.self) { tag in
+                    if let t = SessionTag(rawValue: tag) {
+                        HStack(spacing: 4) {
+                            Image(systemName: t.icon)
+                                .font(.caption2)
+                            Text(t.rawValue)
+                                .font(.caption.weight(.medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(t.color.opacity(0.12))
+                        .foregroundStyle(t.color)
+                        .clipShape(Capsule())
+                    } else {
+                        Text(tag)
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(UIColor.tertiarySystemFill))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
+        }
+    }
+
     private func detailCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
+            Text(title.uppercased())
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
             
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 content()
             }
-            .padding()
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppTheme.cardBackground)
-            )
+            .cardStyle()
         }
     }
     
@@ -234,9 +277,11 @@ struct SessionDetailView: View {
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
-                .foregroundStyle(AppTheme.secondaryText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value)
+                .font(.subheadline.weight(.medium))
         }
     }
     
@@ -270,33 +315,31 @@ struct SessionDetailView: View {
     }
     
     private func notesSection(_ notes: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Notes")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("NOTES")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
             Text(notes)
                 .font(.body)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardStyle()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.cardBackground)
-        )
     }
     
     private func handNotesSection(_ handNotes: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Hand Notes")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("HAND NOTES")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
             Text(handNotes)
                 .font(.body)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardStyle()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.cardBackground)
-        )
     }
 
     private var attachedHandsSection: some View {
@@ -383,6 +426,7 @@ struct SessionDetailView: View {
         }
         if let hours = s.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
         if let roi = s.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
+        if !s.tags.isEmpty { lines.append("Tags: \(s.tags.joined(separator: ", "))") }
         if !s.notes.isEmpty { lines.append("Notes: \(s.notes)") }
         if let handNotes = s.handNotes, !handNotes.isEmpty { lines.append("Hand Notes: \(handNotes)") }
         if !s.attachedHands.isEmpty {
@@ -403,6 +447,20 @@ struct SessionDetailView: View {
     private var sessionShareItems: [Any] {
         let images = currentSession.imageIds.compactMap { SessionImageStore.loadImage(imageId: $0) }
         return [sessionShareText] + images
+    }
+
+    private func presentShareSheet(items: [Any]) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.keyWindow?.rootViewController else { return }
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let popover = vc.popoverPresentationController {
+            popover.sourceView = root.view
+            popover.sourceRect = CGRect(x: root.view.bounds.midX, y: 0, width: 0, height: 0)
+            popover.permittedArrowDirections = .up
+        }
+        var presenter = root
+        while let presented = presenter.presentedViewController { presenter = presented }
+        presenter.present(vc, animated: true)
     }
 }
 
@@ -451,6 +509,49 @@ struct FullScreenPhotoViewer: View {
                 }
                 Spacer()
             }
+        }
+    }
+}
+
+// MARK: - Flow Layout
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > maxWidth, currentX > 0 {
+                currentY += rowHeight + spacing
+                currentX = 0
+                rowHeight = 0
+            }
+            currentX += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth, height: currentY + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var currentX: CGFloat = bounds.minX
+        var currentY: CGFloat = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > bounds.maxX, currentX > bounds.minX {
+                currentY += rowHeight + spacing
+                currentX = bounds.minX
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: currentX, y: currentY), proposal: ProposedViewSize(size))
+            currentX += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

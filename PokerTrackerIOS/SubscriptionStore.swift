@@ -19,33 +19,12 @@ final class SubscriptionStore: ObservableObject {
     @Published private(set) var products: [Product] = []
     @Published private(set) var purchasedProductIDs: Set<String> = []
     @Published private(set) var isSubscribed = false
-    @Published private(set) var hasPremiumFromFriendCode = false
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
     private var updateListenerTask: Task<Void, Error>?
 
-    /// Valid friend/promo codes that grant premium without payment. Add more as needed.
-    private static let friendCodes: Set<String> = [
-        "FRIEND2025",
-        "BETA",
-    ]
-
-    private static let premiumOverrideKey = "premiumFriendCodeRedeemed"
-
-    /// Redeem a friend/promo code. Returns true if the code was valid and premium was granted.
-    func redeemFriendCode(_ code: String) -> Bool {
-        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard Self.friendCodes.contains(normalized) else { return false }
-        UserDefaults.standard.set(true, forKey: Self.premiumOverrideKey)
-        hasPremiumFromFriendCode = true
-        refreshSubscriptionState()
-        return true
-    }
-
     init() {
-        hasPremiumFromFriendCode = UserDefaults.standard.bool(forKey: Self.premiumOverrideKey)
-        refreshSubscriptionState()
         updateListenerTask = listenForTransactions()
         Task {
             await loadProducts()
@@ -135,10 +114,9 @@ final class SubscriptionStore: ObservableObject {
     }
 
     private func refreshSubscriptionState() {
-        let hasStoreSubscription = purchasedProductIDs.contains { productID in
+        isSubscribed = purchasedProductIDs.contains { productID in
             productID == Self.proMonthlyProductID || productID.hasSuffix(".\(Self.proMonthlyProductID)")
         }
-        isSubscribed = hasStoreSubscription || hasPremiumFromFriendCode
     }
 
     var proMonthlyProduct: Product? {

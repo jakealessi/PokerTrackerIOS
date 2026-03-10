@@ -46,7 +46,7 @@ class SessionStore: ObservableObject {
     private var cloudSyncUpdatedAt: TimeInterval?
     
     init() {
-        loadSessions()
+        loadSessionsLocal()
         cloudObserver = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: cloudStore,
@@ -54,8 +54,10 @@ class SessionStore: ObservableObject {
         ) { [weak self] _ in
             self?.syncFromCloudIfNewer()
         }
-        cloudStore.synchronize()
-        syncFromCloudIfNewer()
+        DispatchQueue.main.async { [weak self] in
+            self?.cloudStore.synchronize()
+            self?.syncFromCloudIfNewer()
+        }
     }
 
     deinit {
@@ -361,10 +363,6 @@ class SessionStore: ObservableObject {
         sessions.removeAll { $0.id == session.id }
     }
     
-    func deleteSessions(at offsets: IndexSet) {
-        let toDelete = offsets.map { filteredSessions[$0] }
-        for s in toDelete { deleteSession(s) }
-    }
     
     // MARK: - Export
     func exportCSV(currency: String = "USD") -> String {
@@ -376,7 +374,7 @@ class SessionStore: ObservableObject {
             return value
         }
 
-        var csv = "Date,Game Format,Variant,Amount,Hours,Stakes,Venue,Notes\n"
+        var csv = "Date,Game Format,Variant,Amount,Hours,Stakes,Venue,Tags,Notes\n"
         for s in filteredSessions.sorted(by: { $0.date > $1.date }) {
             let date = ISO8601DateFormatter().string(from: s.date)
             let amount = PokerSession.formatCurrency(s.amount, currency: currency)
@@ -384,6 +382,7 @@ class SessionStore: ObservableObject {
             let stakes = s.stakes ?? ""
             let venue = s.venue ?? ""
             let variant = s.displayVariant
+            let tags = s.tags.joined(separator: "; ")
             let notes = [s.notes, s.handNotes]
                 .compactMap { value -> String? in
                     guard let value, !value.isEmpty else { return nil }
@@ -398,6 +397,7 @@ class SessionStore: ObservableObject {
                 escapeCSV(hours),
                 escapeCSV(stakes),
                 escapeCSV(venue),
+                escapeCSV(tags),
                 escapeCSV(notes)
             ].joined(separator: ",")
             csv += "\(row)\n"
@@ -433,19 +433,7 @@ class SessionStore: ObservableObject {
         throw BackupError.invalidFormat
     }
     
-    private func loadSessions() {
-        let localUpdatedAt = UserDefaults.standard.double(forKey: saveUpdatedAtKey)
-        let cloudUpdatedAt = cloudStore.double(forKey: cloudSaveUpdatedAtKey)
-
-        if cloudUpdatedAt > localUpdatedAt,
-           let cloudData = cloudStore.data(forKey: cloudSaveKey),
-           let cloudDecoded = decodeSessions(from: cloudData) {
-            sessions = sortedSessions(cloudDecoded)
-            UserDefaults.standard.set(cloudData, forKey: saveKey)
-            UserDefaults.standard.set(cloudUpdatedAt, forKey: saveUpdatedAtKey)
-            return
-        }
-
+    private func loadSessionsLocal() {
         guard let data = UserDefaults.standard.data(forKey: saveKey),
               let decoded = decodeSessions(from: data) else {
             sessions = []

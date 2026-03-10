@@ -33,13 +33,15 @@ struct PlayingCard: Hashable, Equatable {
 // MARK: - Game Type
 
 enum EquityGameType {
-    case nlh  // 2 cards per hand
-    case plo  // 4 cards per hand
+    case nlh   // 2 cards per hand
+    case plo   // 4 cards per hand
+    case plo5  // 5 cards per hand
 
     var cardsPerHand: Int {
         switch self {
         case .nlh: return 2
         case .plo: return 4
+        case .plo5: return 5
         }
     }
 }
@@ -216,6 +218,7 @@ struct PokerEquityEngine {
     private typealias ThreeIndexCombo = (Int, Int, Int)
     private static let nlhFiveFromSevenCombos = makeFiveIndexCombinations(n: 7)
     private static let ploHandTwoCombos = makeTwoIndexCombinations(n: 4)
+    private static let plo5HandTwoCombos = makeTwoIndexCombinations(n: 5)
     private static let ploBoardThreeCombos = makeThreeIndexCombinations(n: 5)
 
     func calculate() -> EquityResult? {
@@ -302,6 +305,8 @@ struct PokerEquityEngine {
             combosPerHand = Self.nlhFiveFromSevenCombos.count // 21
         case .plo:
             combosPerHand = Self.ploHandTwoCombos.count * Self.ploBoardThreeCombos.count // 60
+        case .plo5:
+            combosPerHand = Self.plo5HandTwoCombos.count * Self.ploBoardThreeCombos.count // 100
         }
 
         let evalsPerSample = max(1, hands.count * combosPerHand)
@@ -353,6 +358,8 @@ struct PokerEquityEngine {
             return bestFiveFromSeven(hand: hand, board: board)
         case .plo:
             return bestOmahaHand(hand: hand, board: board)
+        case .plo5:
+            return bestOmaha5Hand(hand: hand, board: board)
         }
     }
 
@@ -376,6 +383,23 @@ struct PokerEquityEngine {
     private func bestOmahaHand(hand: [PlayingCard], board: [PlayingCard]) -> UInt64 {
         var best: UInt64 = 0
         for hc in Self.ploHandTwoCombos {
+            for bc in Self.ploBoardThreeCombos {
+                let r = HandEvaluator.rank(
+                    hand[hc.0],
+                    hand[hc.1],
+                    board[bc.0],
+                    board[bc.1],
+                    board[bc.2]
+                )
+                if r > best { best = r }
+            }
+        }
+        return best
+    }
+
+    private func bestOmaha5Hand(hand: [PlayingCard], board: [PlayingCard]) -> UInt64 {
+        var best: UInt64 = 0
+        for hc in Self.plo5HandTwoCombos {
             for bc in Self.ploBoardThreeCombos {
                 let r = HandEvaluator.rank(
                     hand[hc.0],

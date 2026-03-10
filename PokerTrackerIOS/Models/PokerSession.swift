@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 struct PokerSession: Identifiable, Codable, Equatable {
     struct AttachedHand: Identifiable, Codable, Equatable {
@@ -56,6 +57,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var startTime: Date?
     var endTime: Date?
     var imageIds: [String]
+    var tags: [String]
     
     init(
         id: UUID = UUID(),
@@ -76,7 +78,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
         attachedHands: [AttachedHand] = [],
         startTime: Date? = nil,
         endTime: Date? = nil,
-        imageIds: [String] = []
+        imageIds: [String] = [],
+        tags: [String] = []
     ) {
         self.id = id
         self.sessionNumber = sessionNumber
@@ -97,6 +100,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.startTime = startTime
         self.endTime = endTime
         self.imageIds = imageIds
+        self.tags = tags
     }
     
     // Migration: if sessionNumber is missing from old data, default to 0
@@ -121,6 +125,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
         startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
         endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
         imageIds = try c.decodeIfPresent([String].self, forKey: .imageIds) ?? []
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
     
     var isWin: Bool { amount > 0 }
@@ -258,6 +263,65 @@ enum PokerVariant: String, CaseIterable {
         case .shortDeck: return "6+"
         case .openFaceChinese: return "OFC"
         case .mixed: return "Mixed"
+        }
+    }
+}
+
+// MARK: - Session Tags
+enum SessionTag: String, CaseIterable {
+    case aGame = "A-Game"
+    case tilt = "Tilt"
+    case toughTable = "Tough Table"
+    case softTable = "Soft Table"
+    case badBeat = "Bad Beat"
+    case runGood = "Run Good"
+    case tired = "Tired"
+    case focused = "Focused"
+    case marathon = "Marathon"
+    case confident = "Confident"
+    case deepStack = "Deep Stack"
+    case stressful = "Stressful"
+    case profitable = "Profitable"
+    case experimental = "Experimental"
+    case bigBluff = "Big Bluff"
+
+    var icon: String {
+        switch self {
+        case .aGame: return "star.fill"
+        case .tilt: return "flame.fill"
+        case .toughTable: return "shield.fill"
+        case .softTable: return "leaf.fill"
+        case .badBeat: return "bolt.fill"
+        case .runGood: return "sparkles"
+        case .tired: return "moon.fill"
+        case .focused: return "eye.fill"
+        case .marathon: return "clock.fill"
+        case .confident: return "hand.thumbsup.fill"
+        case .deepStack: return "arrow.up.right.circle.fill"
+        case .stressful: return "exclamationmark.triangle.fill"
+        case .profitable: return "dollarsign.circle.fill"
+        case .experimental: return "flask.fill"
+        case .bigBluff: return "theatermasks.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .aGame:        return Color(red: 1.0, green: 0.75, blue: 0.0)   // gold
+        case .tilt:         return Color(red: 0.95, green: 0.3, blue: 0.2)   // red-orange
+        case .toughTable:   return Color(red: 0.55, green: 0.55, blue: 0.6)  // steel
+        case .softTable:    return Color(red: 0.3, green: 0.78, blue: 0.45)  // green
+        case .badBeat:      return Color(red: 0.85, green: 0.2, blue: 0.35)  // crimson
+        case .runGood:      return Color(red: 0.2, green: 0.75, blue: 0.9)   // sky blue
+        case .tired:        return Color(red: 0.5, green: 0.45, blue: 0.75)  // lavender
+        case .focused:      return Color(red: 0.0, green: 0.6, blue: 0.85)   // blue
+        case .marathon:     return Color(red: 0.6, green: 0.4, blue: 0.2)    // brown
+        case .confident:    return Color(red: 0.95, green: 0.55, blue: 0.2)  // orange
+        case .deepStack:    return Color(red: 0.25, green: 0.6, blue: 0.5)   // teal
+        case .stressful:    return Color(red: 0.85, green: 0.65, blue: 0.15) // amber
+        case .profitable:   return Color(red: 0.45, green: 0.8, blue: 0.3)   // lime
+        case .experimental: return Color(red: 0.4, green: 0.45, blue: 0.85)  // indigo
+        case .bigBluff:     return Color(red: 0.75, green: 0.3, blue: 0.7)   // purple
         }
     }
 }

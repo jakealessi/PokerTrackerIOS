@@ -30,11 +30,19 @@ struct AddSessionView: View {
     @State private var endTime: Date? = nil
     @State private var imageIds: [String] = []
     @State private var attachedHands: [PokerSession.AttachedHand]
+    @State private var selectedTags: Set<String> = []
     
     private let calendar = Calendar.current
+    private let hasPrefilledGame: Bool
 
-    init(prefilledAttachedHands: [PokerSession.AttachedHand] = []) {
+    init(prefilledAttachedHands: [PokerSession.AttachedHand] = [], prefilledVariant: String? = nil, prefilledStakes: String? = nil, prefilledGameType: GameType? = nil, prefilledVenue: String? = nil) {
         _attachedHands = State(initialValue: prefilledAttachedHands)
+        let hasPrefill = prefilledVariant != nil || prefilledStakes != nil || prefilledGameType != nil
+        self.hasPrefilledGame = hasPrefill
+        if let v = prefilledVariant { _selectedVariant = State(initialValue: v) }
+        if let s = prefilledStakes { _stakes = State(initialValue: s) }
+        if let g = prefilledGameType { _gameType = State(initialValue: g) }
+        if let ven = prefilledVenue, !ven.isEmpty { _venue = State(initialValue: ven) }
     }
     
     private var parsedAmount: Double {
@@ -141,6 +149,10 @@ struct AddSessionView: View {
                     }
                 }
                 
+                Section("Tags") {
+                    TagPickerView(selectedTags: $selectedTags)
+                }
+
                 Section("Notes") {
                     TextField("Session notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
@@ -188,6 +200,7 @@ struct AddSessionView: View {
                 }
             }
             .onAppear {
+                guard !hasPrefilledGame else { return }
                 if let last = sessionStore.lastSession {
                     gameType = last.gameType == .plo ? .cash : last.gameType
                     loadVariant(last.displayVariant)
@@ -294,10 +307,53 @@ struct AddSessionView: View {
             attachedHands: attachedHands,
             startTime: startTime,
             endTime: endTime,
-            imageIds: imageIds
+            imageIds: imageIds,
+            tags: Array(selectedTags)
         )
         sessionStore.addSession(session)
         dismiss()
+    }
+}
+
+// MARK: - Tag Picker
+
+struct TagPickerView: View {
+    @Binding var selectedTags: Set<String>
+
+    private let columns = [GridItem(.adaptive(minimum: 100), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(SessionTag.allCases, id: \.rawValue) { tag in
+                let isSelected = selectedTags.contains(tag.rawValue)
+                Button {
+                    if isSelected {
+                        selectedTags.remove(tag.rawValue)
+                    } else {
+                        selectedTags.insert(tag.rawValue)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: tag.icon)
+                            .font(.caption2)
+                        Text(tag.rawValue)
+                            .font(.caption)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity)
+                    .background(isSelected ? tag.color.opacity(0.18) : Color(UIColor.tertiarySystemFill))
+                    .foregroundStyle(isSelected ? tag.color : .primary)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? tag.color.opacity(0.5) : Color.clear, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 

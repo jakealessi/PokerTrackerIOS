@@ -26,12 +26,7 @@ struct ParsedSession {
     let tournamentPosition: Int?
     let rebuys: Int?
     let handNotes: String?
-}
-
-struct ParseResult {
-    let session: ParsedSession
-    let usedFallback: Bool
-    let fallbackReason: String?
+    let tags: [String]
 }
 
 struct ChatMessage: Identifiable, Equatable {
@@ -48,6 +43,7 @@ struct ChatMessage: Identifiable, Equatable {
 enum ConversationResult {
     case followUp(String)
     case complete(ParsedSession)
+    case completeOffline(ParsedSession)  // Used when AI fails and backup parser succeeds
     case update(sessionNumber: Int, fields: [String: Any])
 }
 
@@ -122,43 +118,7 @@ class AISessionService: ObservableObject {
                 guard Self.isLoggable(offline) else {
                     return .followUp(Self.minimumInfoFollowUp)
                 }
-                return .complete(offline)
-            }
-            throw error
-        }
-    }
-    
-    // MARK: - Single-shot parsing
-    
-    func parseSession(from description: String, workerBaseURL: String, geminiKey: String?, openAIKey: String?) async throws -> ParseResult {
-        let messages = [ChatMessage(role: .user, text: description)]
-        do {
-            let result: ConversationResult
-            if let key = geminiKey, !key.isEmpty {
-                result = try await converseWithGemini(messages: messages, apiKey: key, existingSessions: "")
-            } else if let key = openAIKey, !key.isEmpty {
-                result = try await converseWithOpenAI(messages: messages, apiKey: key, existingSessions: "")
-            } else {
-                result = try await converseViaWorker(
-                    messages: messages,
-                    conversationId: UUID().uuidString,
-                    workerBaseURL: workerBaseURL,
-                    existingSessions: ""
-                )
-            }
-            switch result {
-            case .complete(let session):
-                return ParseResult(session: session, usedFallback: false, fallbackReason: nil)
-            case .followUp, .update:
-                throw AISessionError.invalidResponse
-            }
-        } catch {
-            if let offline = SessionParserService.parse(description) {
-                guard Self.isLoggable(offline) else {
-                    throw AISessionError.invalidResponse
-                }
-                let reason = "AI unavailable: \(error.localizedDescription). Used offline parser."
-                return ParseResult(session: offline, usedFallback: true, fallbackReason: reason)
+                return .completeOffline(offline)
             }
             throw error
         }
@@ -171,6 +131,8 @@ class AISessionService: ObservableObject {
         let todayISO = ISO8601DateFormatter().string(from: now)
         let dayName = formatDayName(now)
         let dateContext = "Today is \(dayName). The current date in ISO 8601 is: \(todayISO). Use this as the ONLY reference when interpreting relative dates."
+
+        let tagList = SessionTag.allCases.map { $0.rawValue }.joined(separator: ", ")
 
         var prompt = """
         You are a poker session logging assistant inside a tracking app. You help log new sessions and update existing ones.
@@ -185,20 +147,56 @@ class AISessionService: ObservableObject {
         2. UPDATE EXISTING SESSION - modify a session by its # number
         3. ASK FOR DETAILS - if user gives very minimal info, ask follow-up questions
 
+        CRITICAL — AMOUNT EXTRACTION (READ CAREFULLY):
+        - "amount" is ALWAYS the user's FINAL NET profit or loss — the money they actually took home.
+        - LOOK FOR KEYWORDS: "made", "won", "up", "lost", "down" followed by a dollar figure. That figure is the amount.
+        - IGNORE peak/high-water-mark numbers. Words like "was up", "originally up", "peaked at" describe mid-session swings, NOT the final result.
+        - EXAMPLE: "made 600 bucks ... was originally up 1200 but punted" → amount is 600 (NOT 1200). The 1200 is a mid-session peak. The "made 600" is what they took home. Put "Was originally up 1200 but punted" into notes.
+        - EXAMPLE: "won 300 but was up 800 at one point" → amount is 300 (NOT 800).
+        - EXAMPLE: "lost 500, was stuck 1000 earlier but fought back" → amount is -500.
+        - If user says "bought in for X, cashed out for Y", compute amount as Y - X.
+        - Positive amount = win, negative = loss.
+        - WHEN IN DOUBT: use the number attached to "made/won/lost/down/up" at the START of the message, not numbers mentioned as past peaks.
+
+        NOTES & HAND NOTES:
+        - Any extra context the user provides beyond the core session data (amount, stakes, hours, venue, variant) should go into "notes".
+        - Examples: "was on tilt", "table was really soft", "ran bad but played well", "was up 1200 but punted half back" — put these in "notes" as-is.
+        - Do NOT ignore this context. Capture it faithfully.
+
+        TAGS (strict rules):
+        - Available tags: \(tagList)
+        - ONLY add a tag when the user EXPLICITLY mentions the concept using clear, unambiguous language. Never infer or guess tags.
+        - Do NOT add tags based on the session result alone. Winning does NOT mean "Profitable" or "Run Good". Losing does NOT mean "Bad Beat" or "Tilt".
+        - Each tag requires the user to specifically describe that experience:
+          • "Tilt" — user says "tilt", "tilted", "on tilt", "steaming", "lost my cool"
+          • "Tired" — user says "tired", "exhausted", "sleepy", "fatigued"
+          • "Focused" — user says "focused", "in the zone", "locked in", "dialed in"
+          • "A-Game" — user says "A-game", "played great", "played my best", "peak performance"
+          • "Bad Beat" — user says "bad beat", "got sucked out", "cooler", "got rivered"
+          • "Run Good" — user says "run good", "running hot", "heater", "couldn't lose"
+          • "Soft Table" — user says "soft table", "soft game", "fishy", "fish", "easy game"
+          • "Tough Table" — user says "tough table", "tough lineup", "all regs", "tough game"
+          • "Marathon" — user says "marathon", "long session", "grind" AND hours >= 6
+          • "Deep Stack" — user says "deep stack", "deep stacked"
+          • "Big Bluff" — user says "big bluff", "bluffed", "hero call"
+          • "Confident" — user says "confident", "felt confident"
+          • "Stressful" — user says "stressful", "stressed", "sweating", "nervous"
+          • "Profitable" — user says "crushing", "printing money", "crushing it"
+          • "Experimental" — user says "experimental", "trying new", "new strategy", "testing"
+        - When in doubt, do NOT add the tag. Return an empty array [] if no tags are explicitly mentioned.
+
         RULES FOR NEW SESSIONS:
         - If the user gives ONLY an amount (e.g. "won 50" or "lost 200") with no other details, ask a SHORT friendly question to get more info. Ask about 2-3 things at once (like stakes, game type, hours, venue).
         - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
         - When you have enough info, respond with ONLY a JSON object:
-          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null}
+          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
         - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
-        - Positive amount = win, negative = loss.
-        - If user says "bought in for X, cashed out for Y", compute amount as Y - X.
         - Default variant to "No Limit Hold'em" and format to "Cash Game" if not mentioned.
 
         RULES FOR UPDATES:
         - If the user says something like "update session 3" or "change session #5 stakes to 2/5", respond with:
           {"action": "update", "sessionNumber": number, "fields": {"fieldName": newValue, ...}}
-        - Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes
+        - Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
         - If the user wants to update but doesn't specify which session, ask them which session number.
 
         GENERAL RULES:
@@ -216,15 +214,28 @@ class AISessionService: ObservableObject {
     
     // MARK: - Direct Gemini Conversation
     
+    private static let geminiModelBasic = "gemini-2.5-flash-lite"
+    private static let geminiModelAdvanced = "gemini-2.5-pro"
+    private static let messageLengthThreshold = 250
+    
+    private static func pickGeminiModel(for messageLength: Int) -> String {
+        messageLength > messageLengthThreshold ? geminiModelAdvanced : geminiModelBasic
+    }
+    
     private func converseWithGemini(messages: [ChatMessage], apiKey: String, existingSessions: String) async throws -> ConversationResult {
+        let userMsg = messages.last(where: { $0.role == .user })?.text ?? ""
+        let model = Self.pickGeminiModel(for: userMsg.count)
+        return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: model)
+    }
+
+    private func performGeminiCall(messages: [ChatMessage], apiKey: String, existingSessions: String, model: String) async throws -> ConversationResult {
         var contents: [[String: Any]] = []
-        
         for msg in messages {
             let role = msg.role == .user ? "user" : "model"
             contents.append(["role": role, "parts": [["text": msg.text]]])
         }
-        
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=\(apiKey)")!
+
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -236,30 +247,42 @@ class AISessionService: ObservableObject {
                 "maxOutputTokens": 500
             ]
         ])
-        
-        let (data, _) = try await urlSession.data(for: request)
-        
+
+        let (data, response) = try await urlSession.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+        if httpStatus == 429, model == Self.geminiModelAdvanced {
+            return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic)
+        }
+
         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = errorJson["error"] as? [String: Any],
            let message = error["message"] as? String {
+            let isRateLimit = httpStatus == 429 || message.lowercased().contains("quota") || message.lowercased().contains("resource exhausted")
+            if isRateLimit, model == Self.geminiModelAdvanced {
+                return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic)
+            }
             throw AISessionError.networkError(NSError(domain: "Gemini", code: -1, userInfo: [NSLocalizedDescriptionKey: message]))
         }
-        
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let candidates = json["candidates"] as? [[String: Any]],
               let first = candidates.first,
               let content = first["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]],
-              let firstPart = parts.first,
-              let responseText = firstPart["text"] as? String else {
+              let parts = content["parts"] as? [[String: Any]] else {
             throw AISessionError.invalidResponse
         }
-        
+
+        let responsePart = parts.last(where: { ($0["thought"] as? Bool) != true }) ?? parts.last
+        guard let responseText = responsePart?["text"] as? String else {
+            throw AISessionError.invalidResponse
+        }
+
         let cleaned = responseText
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         return classifyResponse(cleaned)
     }
     
@@ -392,6 +415,7 @@ class AISessionService: ObservableObject {
         let tournamentPosition = Self.parseIntValue(parsed["tournamentPosition"])
         let rebuys = Self.parseIntValue(parsed["rebuys"])
         let handNotes = parsed["handNotes"] as? String
+        let tags = (parsed["tags"] as? [String]) ?? []
         
         var date: Date?
         if let dateStr = parsed["date"] as? String {
@@ -422,7 +446,8 @@ class AISessionService: ObservableObject {
             date: date,
             tournamentPosition: tournamentPosition,
             rebuys: rebuys,
-            handNotes: handNotes
+            handNotes: handNotes,
+            tags: tags
         )
         guard Self.isLoggable(session) else {
             return .followUp(Self.minimumInfoFollowUp)
@@ -481,6 +506,7 @@ class AISessionService: ObservableObject {
         let tournamentPosition = parseIntValue(d["tournamentPosition"])
         let rebuys = parseIntValue(d["rebuys"])
         let handNotes = d["handNotes"] as? String
+        let tags = (d["tags"] as? [String]) ?? []
         
         var date: Date?
         if let dateStr = d["date"] as? String {
@@ -511,7 +537,8 @@ class AISessionService: ObservableObject {
             date: date,
             tournamentPosition: tournamentPosition,
             rebuys: rebuys,
-            handNotes: handNotes
+            handNotes: handNotes,
+            tags: tags
         )
     }
     

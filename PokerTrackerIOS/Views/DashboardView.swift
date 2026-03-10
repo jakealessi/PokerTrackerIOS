@@ -28,15 +28,14 @@ struct DashboardView: View {
         subscriptionStore.isSubscribed || AISessionCrafterUsage.hasFreeUsesRemaining
     }
     
+    private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
+    private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 statsHeader
-                
-                Divider()
-                
                 chatArea
-                
                 inputBar
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,6 +47,7 @@ struct DashboardView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape.fill")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .principal) {
@@ -57,6 +57,7 @@ struct DashboardView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAddSession = true } label: {
                         Image(systemName: "plus.circle.fill")
+                            .font(.title3)
                             .foregroundStyle(AppTheme.accent)
                     }
                 }
@@ -84,44 +85,55 @@ struct DashboardView: View {
     // MARK: - Stats Header
     
     private var statsHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             VStack(spacing: 2) {
                 Text("Bankroll")
                     .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .kerning(0.5)
                 Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(bankroll >= 0 ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
+                    .contentTransition(.numericText())
             }
+            .padding(.top, 2)
             
             HStack(spacing: 0) {
                 statItem("\(sessionStore.totalSessions)", "Sessions")
-                Divider().frame(height: 24)
+                statDivider
                 statItem(String(format: "%.0f%%", sessionStore.winRate), "Win Rate")
-                Divider().frame(height: 24)
+                statDivider
                 statItem("\(sessionStore.winCount)/\(sessionStore.lossCount)", "W/L")
                 if sessionStore.totalHoursPlayed > 0, let rate = sessionStore.hourlyRate {
-                    Divider().frame(height: 24)
+                    statDivider
                     statItem(PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency), "$/hr")
                 }
             }
-            .padding(.vertical, 8)
-            .background(AppTheme.cardBackground)
-            .cornerRadius(10)
+            .padding(.vertical, 10)
+            .subtleCard()
             .padding(.horizontal)
         }
         .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
+    }
+
+    private var statDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(width: 1, height: 28)
     }
     
     private func statItem(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             Text(value)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(AppTheme.secondaryText)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
         }
         .frame(maxWidth: .infinity)
     }
@@ -135,11 +147,10 @@ struct DashboardView: View {
                     emptyPrompt
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            // Make tapping the empty area immediately focus the input
                             inputFocused = true
                         }
                 } else {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 10) {
                         ForEach(chatMessages) { message in
                             chatBubble(message)
                                 .id(message.id)
@@ -176,19 +187,30 @@ struct DashboardView: View {
     }
     
     private var emptyPrompt: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 40, weight: .thin))
-                .foregroundStyle(.tertiary)
-            Text("Log a session or update an existing one")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("Try: \"Won $200 at 1/2 NLH\" or \"Update session #3 stakes to 2/5\"")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.accent.opacity(0.08))
+                        .frame(width: 72, height: 72)
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(AppTheme.accent.opacity(0.5))
+                }
+
+                Text("Log a Session")
+                    .font(.title3.weight(.semibold))
+
+                Text("Describe your session and AI will log it.\nTry \"Won $200 at 1/2 NLH for 4 hours\"")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 32)
+            }
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,17 +218,28 @@ struct DashboardView: View {
     
     private func chatBubble(_ message: ChatMessage) -> some View {
         HStack {
-            if message.role == .user { Spacer(minLength: 60) }
+            if message.role == .user { Spacer(minLength: 48) }
             
             Text(message.text)
                 .font(.body)
                 .foregroundStyle(message.role == .user ? .white : .primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(message.role == .user ? Color.blue : AppTheme.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    message.role == .user
+                    ? AnyShapeStyle(
+                        LinearGradient(
+                            colors: [AppTheme.accent, AppTheme.accent.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    : AnyShapeStyle(AppTheme.cardBackground)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .shadow(color: .black.opacity(message.role == .user ? 0.08 : 0.04), radius: 3, y: 1)
             
-            if message.role == .assistant { Spacer(minLength: 60) }
+            if message.role == .assistant { Spacer(minLength: 48) }
         }
         .padding(.horizontal)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -232,7 +265,7 @@ struct DashboardView: View {
                     Spacer()
                     if AISessionCrafterUsage.usesRemaining == 0 {
                         Button("Unlock unlimited") { showingPaywall = true }
-                            .font(.caption)
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.accent)
                     }
                 }
@@ -252,18 +285,17 @@ struct DashboardView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.body)
+                            .font(.body.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
                 }
                 
-                // Dismiss button when keyboard is focused
                 if inputFocused {
                     Button {
                         inputFocused = false
                     } label: {
                         Image(systemName: "chevron.down")
-                            .font(.body)
+                            .font(.body.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -271,24 +303,28 @@ struct DashboardView: View {
                 TextField("Log a session...", text: $inputText, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
-                    .padding(10)
-                    .background(AppTheme.cardBackground)
-                    .cornerRadius(20)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(AppTheme.cardBackground)
+                    )
                     .focused($inputFocused)
                 
                 Button {
                     sendMessage()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
+                        .font(.system(size: 32))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(
                             inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading
-                            ? Color.gray : AppTheme.accent
+                            ? Color.gray.opacity(0.5) : AppTheme.accent
                         )
                 }
                 .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
     }
@@ -345,42 +381,9 @@ struct DashboardView: View {
                 }
                 
             case .complete(let parsed):
-                guard !Task.isCancelled else { return }
-                guard AISessionService.isLoggable(parsed) else {
-                    withAnimation(AppTheme.smoothSpring) {
-                        chatMessages.append(ChatMessage(
-                            role: .assistant,
-                            text: AISessionService.minimumInfoFollowUpMessage()
-                        ))
-                    }
-                    return
-                }
-                if !subscriptionStore.isSubscribed {
-                    AISessionCrafterUsage.consumeOne()
-                }
-                let session = PokerSession(
-                    amount: parsed.amount,
-                    date: parsed.date ?? Date(),
-                    notes: parsed.notes ?? "",
-                    gameType: parsed.gameType,
-                    variant: parsed.variant,
-                    hoursPlayed: parsed.hoursPlayed,
-                    stakes: parsed.stakes,
-                    venue: parsed.venue,
-                    buyIn: parsed.buyIn,
-                    cashOut: parsed.cashOut,
-                    tournamentPosition: parsed.tournamentPosition,
-                    rebuys: parsed.rebuys,
-                    handNotes: parsed.handNotes
-                )
-                sessionStore.addSession(session)
-                
-                let num = sessionStore.displayNumber(for: session) ?? 0
-                let summary = buildSummary(parsed, sessionNumber: num)
-                withAnimation(AppTheme.smoothSpring) {
-                    chatMessages.append(ChatMessage(role: .assistant, text: summary))
-                }
-                if settingsStore.settings.hapticFeedback { HapticManager.success() }
+                handleComplete(parsed, usedOfflineParser: false)
+            case .completeOffline(let parsed):
+                handleComplete(parsed, usedOfflineParser: true)
                 
             case .update(let sessionNumber, let fields):
                 guard !Task.isCancelled else { return }
@@ -427,6 +430,47 @@ struct DashboardView: View {
         }
     }
     
+    private func handleComplete(_ parsed: ParsedSession, usedOfflineParser: Bool) {
+        guard AISessionService.isLoggable(parsed) else {
+            withAnimation(AppTheme.smoothSpring) {
+                chatMessages.append(ChatMessage(
+                    role: .assistant,
+                    text: AISessionService.minimumInfoFollowUpMessage()
+                ))
+            }
+            return
+        }
+        if !subscriptionStore.isSubscribed {
+            AISessionCrafterUsage.consumeOne()
+        }
+        let session = PokerSession(
+            amount: parsed.amount,
+            date: parsed.date ?? Date(),
+            notes: parsed.notes ?? "",
+            gameType: parsed.gameType,
+            variant: parsed.variant,
+            hoursPlayed: parsed.hoursPlayed,
+            stakes: parsed.stakes,
+            venue: parsed.venue,
+            buyIn: parsed.buyIn,
+            cashOut: parsed.cashOut,
+            tournamentPosition: parsed.tournamentPosition,
+            rebuys: parsed.rebuys,
+            handNotes: parsed.handNotes,
+            tags: parsed.tags
+        )
+        sessionStore.addSession(session)
+        let num = sessionStore.displayNumber(for: session) ?? 0
+        var summary = buildSummary(parsed, sessionNumber: num)
+        if usedOfflineParser {
+            summary += "\n\n⚠️ Parsed offline — AI was unavailable."
+        }
+        withAnimation(AppTheme.smoothSpring) {
+            chatMessages.append(ChatMessage(role: .assistant, text: summary))
+        }
+        if settingsStore.settings.hapticFeedback { HapticManager.success() }
+    }
+
     private func buildSummary(_ p: ParsedSession, sessionNumber: Int) -> String {
         var parts: [String] = []
         parts.append("Session #\(sessionNumber) logged!")
@@ -449,18 +493,19 @@ struct TypingIndicator: View {
     @State private var phase = 0.0
     
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(Color.secondary)
+                    .fill(Color.secondary.opacity(0.5))
                     .frame(width: 7, height: 7)
                     .offset(y: phase == Double(i) ? -4 : 0)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .background(AppTheme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 3, y: 1)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
                 phase = 2

@@ -30,6 +30,7 @@ struct EditSessionView: View {
     @State private var startTime: Date? = nil
     @State private var endTime: Date? = nil
     @State private var imageIds: [String] = []
+    @State private var selectedTags: Set<String> = []
     
     private let calendar = Calendar.current
     
@@ -159,6 +160,10 @@ struct EditSessionView: View {
                     }
                 }
                 
+                Section("Tags") {
+                    TagPickerView(selectedTags: $selectedTags)
+                }
+
                 Section("Notes") {
                     TextField("Session notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
@@ -240,6 +245,7 @@ struct EditSessionView: View {
         rebuys = session.rebuys.map { String($0) } ?? ""
         handNotes = session.handNotes ?? ""
         imageIds = session.imageIds
+        selectedTags = Set(session.tags)
     }
     
     private func save() {
@@ -261,6 +267,7 @@ struct EditSessionView: View {
         updated.rebuys = Int(rebuys)
         updated.handNotes = handNotes.isEmpty ? nil : handNotes
         updated.imageIds = imageIds
+        updated.tags = Array(selectedTags)
         // Delete image files that were removed during edit
         let removedIds = Set(session.imageIds).subtracting(imageIds)
         SessionImageStore.delete(imageIds: Array(removedIds))

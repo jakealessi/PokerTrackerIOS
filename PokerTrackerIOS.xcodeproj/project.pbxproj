@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		A1000001 /* PokerTrackerIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001 /* PokerTrackerIOSApp.swift */; };
-		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002 /* ContentView.swift */; };
 		A1000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000003 /* Assets.xcassets */; };
 		A1000004 /* PokerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* PokerSession.swift */; };
 		A1000005 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* SessionStore.swift */; };
@@ -44,11 +43,11 @@
 		A1000042 /* PokerEquityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042 /* PokerEquityEngine.swift */; };
 		A1000043 /* OddsCalculatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000043 /* OddsCalculatorView.swift */; };
 		A1000044 /* AnonymousUserID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000044 /* AnonymousUserID.swift */; };
+		A1000045 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000045 /* ReminderManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A2000001 /* PokerTrackerIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerTrackerIOSApp.swift; sourceTree = "<group>"; };
-		A2000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A2000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000004 /* PokerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerSession.swift; sourceTree = "<group>"; };
 		A2000005 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
@@ -85,6 +84,7 @@
 		A2000042 /* PokerEquityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerEquityEngine.swift; sourceTree = "<group>"; };
 		A2000043 /* OddsCalculatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsCalculatorView.swift; sourceTree = "<group>"; };
 		A2000044 /* AnonymousUserID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousUserID.swift; sourceTree = "<group>"; };
+		A2000045 /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
 		A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B77267D62F5406F200A2990B /* PokerTrackerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PokerTrackerIOS.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -113,7 +113,6 @@
 			children = (
 				B77267D62F5406F200A2990B /* PokerTrackerIOS.entitlements */,
 				A2000001 /* PokerTrackerIOSApp.swift */,
-				A2000002 /* ContentView.swift */,
 				A5000004 /* Models */,
 				A5000005 /* Views */,
 				A5000006 /* Components */,
@@ -188,6 +187,7 @@
 				A2000040 /* AppURLs.swift */,
 				A2000041 /* OddsCalculatorUsage.swift */,
 				A2000044 /* AnonymousUserID.swift */,
+				A2000045 /* ReminderManager.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -294,7 +294,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000001 /* PokerTrackerIOSApp.swift in Sources */,
-				A1000002 /* ContentView.swift in Sources */,
 				A1000004 /* PokerSession.swift in Sources */,
 				A1000005 /* SessionStore.swift in Sources */,
 				A1000006 /* AddSessionView.swift in Sources */,
@@ -327,6 +326,7 @@
 				A1000042 /* PokerEquityEngine.swift in Sources */,
 				A1000043 /* OddsCalculatorView.swift in Sources */,
 				A1000044 /* AnonymousUserID.swift in Sources */,
+				A1000045 /* ReminderManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

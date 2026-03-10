@@ -8,16 +8,49 @@
 import SwiftUI
 
 enum AppTheme {
-    static let background = Color(UIColor.systemGroupedBackground)
     static let accent = Color.blue
     static let secondaryText = Color.secondary
     static let cardBackground = Color(UIColor.secondarySystemGroupedBackground)
 
-    static let cardCornerRadius: CGFloat = 12
+    static let cardCornerRadius: CGFloat = 14
     static let smallCornerRadius: CGFloat = 10
 
-    /// Smooth spring for UI transitions (buttons, selections, panels)
     static let smoothSpring = Animation.spring(response: 0.35, dampingFraction: 0.85)
-    /// Quick spring for immediate feedback (taps, toggles)
-    static let quickSpring = Animation.spring(response: 0.25, dampingFraction: 0.8)
+
+    static let cardShadow = Shadow(color: .black.opacity(0.06), radius: 8, y: 2)
+    static let subtleShadow = Shadow(color: .black.opacity(0.04), radius: 4, y: 1)
+}
+
+struct Shadow {
+    let color: Color
+    let radius: CGFloat
+    let y: CGFloat
+}
+
+extension View {
+    func cardStyle() -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                    .fill(AppTheme.cardBackground)
+                    .shadow(
+                        color: AppTheme.cardShadow.color,
+                        radius: AppTheme.cardShadow.radius,
+                        y: AppTheme.cardShadow.y
+                    )
+            )
+    }
+
+    func subtleCard() -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
+                    .fill(AppTheme.cardBackground)
+                    .shadow(
+                        color: AppTheme.subtleShadow.color,
+                        radius: AppTheme.subtleShadow.radius,
+                        y: AppTheme.subtleShadow.y
+                    )
+            )
+    }
 }

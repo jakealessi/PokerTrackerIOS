@@ -11,9 +11,6 @@ struct SettingsView: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingExportSheet = false
-    @State private var friendCodeInput = ""
-    @State private var showingRedeemResult = false
-    @State private var redeemSuccess = false
     @State private var exportData: String = ""
     @State private var showingRestoreImporter = false
     @State private var showingRestoreConfirm = false
@@ -23,16 +20,18 @@ struct SettingsView: View {
     @State private var showingRestoreResult = false
     @State private var restoreResultTitle = "Restore"
     @State private var restoreResultMessage = ""
+    @State private var showingPaywall = false
     
     var body: some View {
         NavigationStack {
             Form {
-                premiumCodeSection
+                premiumSection
                 gameDefaultsSection
                 bankrollSection
                 currencySection
                 displayPreferencesSection
                 preferencesSection
+                remindersSection
                 dataRecoverySection
                 aboutSection
                 aiSection
@@ -45,6 +44,13 @@ struct SettingsView: View {
                     Text("Settings")
                         .font(.headline)
                 }
+            }
+            .sheet(isPresented: $showingPaywall) {
+                SubscriptionPaywallView(
+                    title: "Premium",
+                    subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
+                )
+                .environmentObject(subscriptionStore)
             }
             .sheet(isPresented: $showingExportSheet) {
                 ExportSheet(data: exportData)
@@ -88,17 +94,10 @@ struct SettingsView: View {
             } message: {
                 Text(restoreResultMessage)
             }
-            .alert(redeemSuccess ? "Premium activated" : "Invalid code", isPresented: $showingRedeemResult) {
-                Button("OK", role: .cancel) {
-                    if redeemSuccess { friendCodeInput = "" }
-                }
-            } message: {
-                Text(redeemSuccess ? "You have premium access. Thanks for being a friend!" : "That code isn’t valid. Check with the person who gave it to you.")
-            }
         }
     }
 
-    private var premiumCodeSection: some View {
+    private var premiumSection: some View {
         Section {
             if subscriptionStore.isSubscribed {
                 HStack {
@@ -109,28 +108,18 @@ struct SettingsView: View {
                         .foregroundStyle(AppTheme.secondaryText)
                 }
             } else {
-                HStack {
-                    TextField("Friend or promo code", text: $friendCodeInput)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                    Button("Redeem") {
-                        let code = friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !code.isEmpty else { return }
-                        redeemSuccess = subscriptionStore.redeemFriendCode(code)
-                        showingRedeemResult = true
-                        if settingsStore.settings.hapticFeedback {
-                            if redeemSuccess { HapticManager.success() } else { HapticManager.notification(.error) }
-                        }
-                    }
-                    .disabled(friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .foregroundStyle(AppTheme.accent)
+                Button {
+                    showingPaywall = true
+                } label: {
+                    Label("Subscribe to Premium", systemImage: "crown.fill")
+                        .foregroundStyle(AppTheme.accent)
                 }
             }
         } header: {
             Text("Premium")
         } footer: {
             if !subscriptionStore.isSubscribed {
-                Text("Have a code from a friend? Enter it here to unlock premium features.")
+                Text("Subscribe to unlock unlimited AI Session Crafter, Odds Calculator, and all stats charts.")
             }
         }
     }
@@ -357,6 +346,23 @@ struct SettingsView: View {
         }
     }
     
+    private var remindersSection: some View {
+        Section {
+            Toggle("Session Reminders", isOn: Binding(
+                get: { settingsStore.settings.reminderEnabled },
+                set: { val in
+                    var s = settingsStore.settings
+                    s.reminderEnabled = val
+                    settingsStore.settings = s
+                }
+            ))
+        } header: {
+            Text("Reminders")
+        } footer: {
+            Text("Reminders to log your sessions.")
+        }
+    }
+
     private var aboutSection: some View {
         Section {
             HStack {

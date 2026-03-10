@@ -35,6 +35,19 @@ struct PokerTrackerIOSApp: App {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { refreshReminder() }
+            }
+            .onChange(of: settingsStore.settings.reminderEnabled) { _, _ in refreshReminder() }
+            .onChange(of: sessionStore.dataVersion) { _, _ in refreshReminder() }
         }
+    }
+
+    private func refreshReminder() {
+        let lastDate = sessionStore.sessions.map(\.date).max()
+        ReminderManager.scheduleIfNeeded(
+            enabled: settingsStore.settings.reminderEnabled,
+            lastSessionDate: lastDate
+        )
     }
 }

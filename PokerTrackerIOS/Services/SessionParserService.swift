@@ -34,7 +34,8 @@ enum SessionParserService {
             date: nil,
             tournamentPosition: nil,
             rebuys: nil,
-            handNotes: nil
+            handNotes: nil,
+            tags: []
         )
     }
     

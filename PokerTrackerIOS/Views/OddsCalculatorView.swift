@@ -28,8 +28,10 @@ struct OddsCalculatorView: View {
     @State private var errorMessage: String?
     @State private var hasChargedCurrentHand = false
     @State private var pendingAttachedHandForNewSession: PokerSession.AttachedHand?
-    @State private var showingShareSheet = false
-    @State private var shareActivityItems: [Any] = []
+    @State private var showingQuickAttachNote = false
+    @State private var quickAttachNote = ""
+
+    private var isFromSession: Bool { preselectedSessionID != nil }
 
     init(preselectedSessionID: UUID? = nil) {
         self.preselectedSessionID = preselectedSessionID
@@ -58,14 +60,24 @@ struct OddsCalculatorView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        shareActivityItems = [handShareText]
-                        showingShareSheet = true
+                    if isFromSession {
+                        Button {
+                            quickAttachNote = ""
+                            showingQuickAttachNote = true
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundStyle(AppTheme.accent)
+                        .disabled(result == nil)
+                    } else {
+                        ShareLink(item: handShareText) {
+                            Text("Share")
+                                .font(.subheadline)
+                                .foregroundStyle(hasShareableHand ? AppTheme.accent : Color.gray)
+                        }
+                        .disabled(!hasShareableHand)
                     }
-                    label: { Text("Share") }
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.accent)
-                    .disabled(!hasShareableHand)
                 }
             }
             .sheet(isPresented: $showingPaywall) {
@@ -98,8 +110,17 @@ struct OddsCalculatorView: View {
                 )
                 .presentationDetents([.medium, .large])
             }
-            .sheet(isPresented: $showingShareSheet) {
-                ActivitySheet(activityItems: shareActivityItems)
+            .alert("Add Hand Note", isPresented: $showingQuickAttachNote) {
+                TextField("Optional note", text: $quickAttachNote)
+                Button("Cancel", role: .cancel) { }
+                Button("Save") {
+                    if let sessionID = preselectedSessionID,
+                       let hand = makeAttachedHand(note: quickAttachNote) {
+                        sessionStore.addAttachedHand(hand, toSessionID: sessionID)
+                    }
+                }
+            } message: {
+                Text("Add an optional note for this hand, then tap Save to attach it to your session.")
             }
         }
     }
@@ -113,7 +134,7 @@ struct OddsCalculatorView: View {
             Text("Odds Calculator")
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("Calculate exact win and tie percentages for NLH and PLO. 20 free uses total (charged once per hand on flop+), then unlock unlimited with Premium.")
+            Text("Calculate exact win and tie percentages for NLH, PLO, and 5-Card PLO. 20 free uses total (charged once per hand on flop+), then unlock unlimited with Premium.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -215,8 +236,9 @@ struct OddsCalculatorView: View {
 
     private var gameTypePicker: some View {
         Picker("Game", selection: $gameType) {
-            Text("No Limit Hold'em").tag(EquityGameType.nlh)
-            Text("Pot Limit Omaha").tag(EquityGameType.plo)
+            Text("NLH").tag(EquityGameType.nlh)
+            Text("PLO").tag(EquityGameType.plo)
+            Text("PLO-5").tag(EquityGameType.plo5)
         }
         .pickerStyle(.segmented)
         .onChange(of: gameType) { _, _ in
@@ -441,17 +463,19 @@ struct OddsCalculatorView: View {
                     .font(.subheadline)
                 }
             }
-            Button {
-                showingAttachSheet = true
-            } label: {
-                Label("Add to Session", systemImage: "plus.bubble")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+            if !isFromSession {
+                Button {
+                    showingAttachSheet = true
+                } label: {
+                    Label("Add to Session", systemImage: "plus.bubble")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accent)
+                .padding(.top, 6)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.accent)
-            .padding(.top, 6)
         }
         .padding()
         .background(AppTheme.cardBackground)
@@ -508,6 +532,7 @@ struct OddsCalculatorView: View {
         switch gameType {
         case .nlh: return "No Limit Hold'em"
         case .plo: return "Pot Limit Omaha"
+        case .plo5: return "5-Card PLO"
         }
     }
 

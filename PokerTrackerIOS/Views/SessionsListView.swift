@@ -50,6 +50,9 @@ struct SessionsListView: View {
                                 }
                                 .tint(AppTheme.accent)
                             }
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
@@ -121,33 +124,64 @@ struct SessionsListView: View {
     
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Text(sessionStore.searchText.isEmpty ? "No sessions yet" : "No matching sessions")
-                .font(.headline)
-                .foregroundStyle(AppTheme.secondaryText)
+            ZStack {
+                Circle()
+                    .fill(AppTheme.accent.opacity(0.08))
+                    .frame(width: 64, height: 64)
+                Image(systemName: sessionStore.searchText.isEmpty ? "list.bullet.rectangle" : "magnifyingglass")
+                    .font(.system(size: 24))
+                    .foregroundStyle(AppTheme.accent.opacity(0.5))
+            }
+            Text(sessionStore.searchText.isEmpty ? "No Sessions Yet" : "No Matching Sessions")
+                .font(.title3.weight(.semibold))
             if sessionStore.searchText.isEmpty {
-                Button("Add Session") { showingAddSession = true }
-                    .foregroundStyle(AppTheme.accent)
-                Button("Add Hand") {
-                    preselectedAttachSessionID = nil
-                    showingOddsCalculator = true
+                Text("Log your first session from the Home tab\nor tap the button below.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button {
+                    showingAddSession = true
+                } label: {
+                    Label("Add Session", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(AppTheme.accent))
+                        .foregroundStyle(.white)
                 }
-                .foregroundStyle(AppTheme.accent)
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var searchBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(AppTheme.secondaryText)
-            TextField("Search notes, venue, stakes", text: $sessionStore.searchText)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.tertiary)
+            TextField("Search notes, venue, stakes...", text: $sessionStore.searchText)
                 .textFieldStyle(.plain)
+                .font(.subheadline)
+            if !sessionStore.searchText.isEmpty {
+                Button {
+                    sessionStore.searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
-        .padding(12)
-        .background(AppTheme.cardBackground)
-        .cornerRadius(8)
-        .padding()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.cardBackground)
+        )
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 

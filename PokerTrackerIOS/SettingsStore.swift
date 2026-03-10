@@ -23,16 +23,8 @@ class SettingsStore: ObservableObject {
     private var cloudSyncUpdatedAt: TimeInterval?
     
     init() {
-        let localUpdatedAt = UserDefaults.standard.double(forKey: Self.settingsUpdatedAtKey)
-        let cloudUpdatedAt = cloudStore.double(forKey: Self.cloudSettingsUpdatedAtKey)
-        if cloudUpdatedAt > localUpdatedAt,
-           let cloudData = cloudStore.data(forKey: Self.cloudSettingsKey),
-           let cloudDecoded = try? JSONDecoder().decode(AppSettings.self, from: cloudData) {
-            settings = cloudDecoded
-            UserDefaults.standard.set(cloudData, forKey: Self.settingsKey)
-            UserDefaults.standard.set(cloudUpdatedAt, forKey: Self.settingsUpdatedAtKey)
-        } else if let data = UserDefaults.standard.data(forKey: Self.settingsKey),
-                  let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
+        if let data = UserDefaults.standard.data(forKey: Self.settingsKey),
+           let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
             settings = decoded
         } else {
             settings = .default
@@ -45,8 +37,10 @@ class SettingsStore: ObservableObject {
         ) { [weak self] _ in
             self?.syncFromCloudIfNewer()
         }
-        cloudStore.synchronize()
-        syncFromCloudIfNewer()
+        DispatchQueue.main.async { [weak self] in
+            self?.cloudStore.synchronize()
+            self?.syncFromCloudIfNewer()
+        }
     }
 
     deinit {
