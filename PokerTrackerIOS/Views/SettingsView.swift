@@ -190,11 +190,14 @@ struct SettingsView: View {
         Section {
             HStack {
                 Text("Starting Bankroll")
-                TextField("0", value: Binding(
-                    get: { settingsStore.settings.startingBankroll },
+                TextField("0", value: Binding<Double?>(
+                    get: {
+                        let v = settingsStore.settings.startingBankroll
+                        return v == 0 ? nil : v
+                    },
                     set: { val in
                         var s = settingsStore.settings
-                        s.startingBankroll = val
+                        s.startingBankroll = val ?? 0
                         settingsStore.settings = s
                     }
                 ), format: .number)

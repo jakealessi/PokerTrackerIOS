@@ -10,6 +10,7 @@ struct SubscriptionPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var activeTask: Task<Void, Never>?
+    @State private var didAttemptPurchase = false
 
     var title: String = "Premium"
     var subtitle: String? = "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
@@ -34,8 +35,8 @@ struct SubscriptionPaywallView: View {
                 }
                 .padding(.top, 20)
 
-                if subscriptionStore.isLoading && subscriptionStore.products.isEmpty {
-                    ProgressView()
+                if subscriptionStore.proMonthlyProduct == nil && (subscriptionStore.isLoading || subscriptionStore.products.isEmpty) {
+                    ProgressView("Loading subscription…")
                         .padding()
                 } else if let product = subscriptionStore.proMonthlyProduct {
                     VStack(spacing: 12) {
@@ -46,11 +47,10 @@ struct SubscriptionPaywallView: View {
                             activeTask?.cancel()
                             activeTask = Task {
                                 do {
+                                    didAttemptPurchase = true
                                     _ = try await subscriptionStore.purchase(product)
                                     guard !Task.isCancelled else { return }
-                                    if subscriptionStore.isSubscribed {
-                                        dismiss()
-                                    }
+                                    // Don't auto-dismiss here; `isSubscribed` can briefly flip due to async entitlement refresh.
                                 } catch {
                                     guard !Task.isCancelled else { return }
                                     subscriptionStore.setErrorMessage(error.localizedDescription)
@@ -91,11 +91,10 @@ struct SubscriptionPaywallView: View {
                 Button("Restore Purchases") {
                     activeTask?.cancel()
                     activeTask = Task {
+                        didAttemptPurchase = true
                         await subscriptionStore.restorePurchases()
                         guard !Task.isCancelled else { return }
-                        if subscriptionStore.isSubscribed {
-                            dismiss()
-                        }
+                        // Dismiss is handled below once subscription is confirmed active.
                     }
                 }
                 .font(.subheadline)
@@ -123,8 +122,14 @@ struct SubscriptionPaywallView: View {
                 }
             }
             .onChange(of: subscriptionStore.isSubscribed) { _, newValue in
-                if newValue {
+                // Only auto-dismiss after the user actually tapped purchase/restore in this view.
+                if didAttemptPurchase, newValue {
                     dismiss()
+                }
+            }
+            .task {
+                if subscriptionStore.products.isEmpty {
+                    await subscriptionStore.loadProducts()
                 }
             }
             .onDisappear {
