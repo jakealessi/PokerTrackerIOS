@@ -201,6 +201,15 @@ struct EditSessionView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
+            .onChange(of: startTime) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
+            .onChange(of: endTime) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
+            .onChange(of: hoursPlayed) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
         }
     }
     
@@ -246,17 +255,36 @@ struct EditSessionView: View {
         handNotes = session.handNotes ?? ""
         imageIds = session.imageIds
         selectedTags = Set(session.tags)
+        autoPopulateMissingTimeFields()
+    }
+
+    private func autoPopulateMissingTimeFields() {
+        if let calculated = PokerSession.calculatedHours(from: startTime, to: endTime),
+           hoursPlayed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            hoursPlayed = String(format: "%.1f", calculated)
+            return
+        }
+
+        guard let hours = Double(hoursPlayed), hours > 0 else { return }
+
+        if startTime != nil, endTime == nil {
+            endTime = PokerSession.endTime(from: startTime, hoursPlayed: hours)
+        } else if endTime != nil, startTime == nil {
+            startTime = PokerSession.startTime(from: endTime, hoursPlayed: hours)
+        }
     }
     
     private func save() {
         let finalAmount = isWin ? parsedAmount : -parsedAmount
+        let calculatedHours = PokerSession.calculatedHours(from: startTime, to: endTime)
+        let finalHoursPlayed = calculatedHours ?? Double(hoursPlayed)
         var updated = session
         updated.amount = finalAmount
         updated.date = date
         updated.gameType = gameType
         updated.variant = finalVariant.isEmpty ? nil : finalVariant
         updated.notes = notes
-        updated.hoursPlayed = Double(hoursPlayed)
+        updated.hoursPlayed = finalHoursPlayed
         updated.stakes = (gameType == .cash && !stakes.isEmpty) ? stakes : nil
         updated.venue = venue.isEmpty ? nil : venue
         updated.startTime = startTime

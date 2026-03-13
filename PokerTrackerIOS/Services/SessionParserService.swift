@@ -9,13 +9,19 @@
 import Foundation
 
 enum SessionParserService {
+
+    static func parseHoursValue(from text: String) -> Double? {
+        let normalized = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return parseHours(from: normalized)
+    }
     
     static func parse(_ text: String) -> ParsedSession? {
         let lowercased = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !lowercased.isEmpty else { return nil }
         
         guard let amount = parseAmount(from: lowercased) else { return nil }
-        let hoursPlayed = parseHours(from: lowercased)
+        let hoursPlayed = parseHoursValue(from: lowercased)
         let stakes = parseStakes(from: lowercased)
         let gameType = parseGameFormat(from: lowercased)
         let variant = parseVariant(from: lowercased)

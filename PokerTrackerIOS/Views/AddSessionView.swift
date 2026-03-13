@@ -224,6 +224,15 @@ struct AddSessionView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
+            .onChange(of: startTime) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
+            .onChange(of: endTime) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
+            .onChange(of: hoursPlayed) { _, _ in
+                autoPopulateMissingTimeFields()
+            }
         }
     }
     
@@ -284,19 +293,37 @@ struct AddSessionView: View {
             isCustomVariant = true
         }
     }
+
+    private func autoPopulateMissingTimeFields() {
+        if let calculated = PokerSession.calculatedHours(from: startTime, to: endTime),
+           hoursPlayed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            hoursPlayed = String(format: "%.1f", calculated)
+            return
+        }
+
+        guard let hours = Double(hoursPlayed), hours > 0 else { return }
+
+        if startTime != nil, endTime == nil {
+            endTime = PokerSession.endTime(from: startTime, hoursPlayed: hours)
+        } else if endTime != nil, startTime == nil {
+            startTime = PokerSession.startTime(from: endTime, hoursPlayed: hours)
+        }
+    }
     
     private func saveSession() {
         if settingsStore.settings.hapticFeedback {
             HapticManager.success()
         }
         let finalAmount = isWin ? parsedAmount : -parsedAmount
+        let calculatedHours = PokerSession.calculatedHours(from: startTime, to: endTime)
+        let finalHoursPlayed = calculatedHours ?? Double(hoursPlayed)
         let session = PokerSession(
             amount: finalAmount,
             date: date,
             notes: notes,
             gameType: gameType,
             variant: finalVariant.isEmpty ? nil : finalVariant,
-            hoursPlayed: Double(hoursPlayed),
+            hoursPlayed: finalHoursPlayed,
             stakes: (gameType == .cash && !stakes.isEmpty) ? stakes : nil,
             venue: venue.isEmpty ? nil : venue,
             buyIn: Double(buyIn),

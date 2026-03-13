@@ -145,6 +145,26 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var formattedAmount: String {
         Self.formatCurrency(amount)
     }
+
+    static func calculatedHours(from startTime: Date?, to endTime: Date?) -> Double? {
+        guard let startTime, let endTime else { return nil }
+        var duration = endTime.timeIntervalSince(startTime)
+        if duration <= 0 {
+            duration += 24 * 60 * 60
+        }
+        guard duration > 0 else { return nil }
+        return duration / 3600
+    }
+
+    static func endTime(from startTime: Date?, hoursPlayed: Double?) -> Date? {
+        guard let startTime, let hoursPlayed, hoursPlayed.isFinite, hoursPlayed > 0 else { return nil }
+        return startTime.addingTimeInterval(hoursPlayed * 3600)
+    }
+
+    static func startTime(from endTime: Date?, hoursPlayed: Double?) -> Date? {
+        guard let endTime, let hoursPlayed, hoursPlayed.isFinite, hoursPlayed > 0 else { return nil }
+        return endTime.addingTimeInterval(-hoursPlayed * 3600)
+    }
     
     /// Display string: variant if set, otherwise game format
     var displayVariant: String {

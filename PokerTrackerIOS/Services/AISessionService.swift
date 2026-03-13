@@ -27,6 +27,25 @@ struct ParsedSession {
     let rebuys: Int?
     let handNotes: String?
     let tags: [String]
+
+    func withHoursPlayed(_ value: Double?) -> ParsedSession {
+        ParsedSession(
+            amount: amount,
+            hoursPlayed: value,
+            stakes: stakes,
+            venue: venue,
+            gameType: gameType,
+            variant: variant,
+            notes: notes,
+            buyIn: buyIn,
+            cashOut: cashOut,
+            date: date,
+            tournamentPosition: tournamentPosition,
+            rebuys: rebuys,
+            handNotes: handNotes,
+            tags: tags
+        )
+    }
 }
 
 struct ChatMessage: Identifiable, Equatable {
@@ -101,18 +120,22 @@ class AISessionService: ObservableObject {
         }
         let current = [lastUserMsg]
         do {
+            let result: ConversationResult
             if let key = geminiKey, !key.isEmpty {
-                return try await converseWithGemini(messages: current, apiKey: key, existingSessions: existingSessions)
+                result = try await converseWithGemini(messages: current, apiKey: key, existingSessions: existingSessions)
+                return Self.inferMissingHours(in: result, from: lastUserMsg.text)
             }
             if let key = openAIKey, !key.isEmpty {
-                return try await converseWithOpenAI(messages: current, apiKey: key, existingSessions: existingSessions)
+                result = try await converseWithOpenAI(messages: current, apiKey: key, existingSessions: existingSessions)
+                return Self.inferMissingHours(in: result, from: lastUserMsg.text)
             }
-            return try await converseViaWorker(
+            result = try await converseViaWorker(
                 messages: current,
                 conversationId: conversationId,
                 workerBaseURL: workerBaseURL,
                 existingSessions: existingSessions
             )
+            return Self.inferMissingHours(in: result, from: lastUserMsg.text)
         } catch {
             if let offline = SessionParserService.parse(lastUserMsg.text) {
                 guard Self.isLoggable(offline) else {
@@ -188,6 +211,7 @@ class AISessionService: ObservableObject {
         RULES FOR NEW SESSIONS:
         - If the user gives ONLY an amount (e.g. "won 50" or "lost 200") with no other details, ask a SHORT friendly question to get more info. Ask about 2-3 things at once (like stakes, game type, hours, venue).
         - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
+        - If the user provides start/end times (e.g. "started at 7, ended at 11"), compute and return hoursPlayed from that range.
         - When you have enough info, respond with ONLY a JSON object:
           {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
         - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
@@ -568,6 +592,24 @@ class AISessionService: ObservableObject {
     private static func hasText(_ value: String?) -> Bool {
         guard let value else { return false }
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func inferMissingHours(in result: ConversationResult, from message: String) -> ConversationResult {
+        guard let inferredHours = SessionParserService.parseHoursValue(from: message) else { return result }
+        switch result {
+        case .complete(let session):
+            guard session.hoursPlayed == nil else { return result }
+            return .complete(session.withHoursPlayed(inferredHours))
+        case .completeOffline(let session):
+            guard session.hoursPlayed == nil else { return result }
+            return .completeOffline(session.withHoursPlayed(inferredHours))
+        case .update(let sessionNumber, var fields):
+            guard parseDoubleValue(fields["hoursPlayed"]) == nil else { return result }
+            fields["hoursPlayed"] = inferredHours
+            return .update(sessionNumber: sessionNumber, fields: fields)
+        case .followUp:
+            return result
+        }
     }
 
     static func parseDoubleValue(_ value: Any?) -> Double? {

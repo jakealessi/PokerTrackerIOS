@@ -477,6 +477,15 @@ class SessionStore: ObservableObject {
     }
 
     private func sortedSessions(_ source: [PokerSession]) -> [PokerSession] {
-        source.sorted { $0.date > $1.date }
+        source
+            .map { session in
+                var normalized = session
+                if let calculated = PokerSession.calculatedHours(from: normalized.startTime, to: normalized.endTime),
+                   normalized.hoursPlayed == nil || (normalized.hoursPlayed ?? 0) <= 0 {
+                    normalized.hoursPlayed = calculated
+                }
+                return normalized
+            }
+            .sorted { $0.date > $1.date }
     }
 }
