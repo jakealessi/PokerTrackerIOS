@@ -30,6 +30,7 @@ struct OddsCalculatorView: View {
     @State private var pendingAttachedHandForNewSession: PokerSession.AttachedHand?
     @State private var showingQuickAttachNote = false
     @State private var quickAttachNote = ""
+    @State private var calculationTask: Task<Void, Never>?
 
     private var isFromSession: Bool { preselectedSessionID != nil }
 
@@ -121,6 +122,9 @@ struct OddsCalculatorView: View {
                 }
             } message: {
                 Text("Add an optional note for this hand, then tap Save to attach it to your session.")
+            }
+            .onDisappear {
+                calculationTask?.cancel()
             }
         }
     }
@@ -372,8 +376,8 @@ struct OddsCalculatorView: View {
         .frame(minWidth: 48, minHeight: 56)
         .contentShape(Rectangle())
         .onTapGesture {
-            if card != nil {
-                removeCard(card!)
+            if let card {
+                removeCard(card)
             } else {
                 selectAction()
             }
@@ -700,6 +704,8 @@ struct OddsCalculatorView: View {
         if [0, 3, 4, 5].contains(boardCount), canCalculate {
             runCalculation()
         } else {
+            calculationTask?.cancel()
+            isCalculating = false
             result = nil
             errorMessage = nil
             // When board is incomplete, treat next completed solve as a new chargeable hand.
@@ -751,12 +757,14 @@ struct OddsCalculatorView: View {
     }
 
     private func clearAll() {
+        calculationTask?.cancel()
         numberOfHands = 2
         hands = Array(repeating: [], count: 6)
         board = []
         deadCards = []
         result = nil
         errorMessage = nil
+        isCalculating = false
         hasChargedCurrentHand = false
         selectedSlot = .hand(0, 0)
     }
@@ -778,23 +786,29 @@ struct OddsCalculatorView: View {
             return
         }
 
+        let calculationGameType = gameType
+        let calculationBoard = board
         let cardsFromIncompleteHands = hands.filter { $0.count > 0 && $0.count != needed }.flatMap { $0 }
         let effectiveDeadCards = deadCards + cardsFromIncompleteHands
         let boardCountAtCalc = board.count
+        let isSubscribed = subscriptionStore.isSubscribed
 
-        Task(priority: .userInitiated) {
+        calculationTask?.cancel()
+        calculationTask = Task(priority: .userInitiated) {
             let engine = PokerEquityEngine(
-                gameType: gameType,
+                gameType: calculationGameType,
                 hands: activeHands,
-                board: board,
+                board: calculationBoard,
                 deadCards: effectiveDeadCards
             )
             let res = engine.calculate()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 isCalculating = false
                 if let r = res {
                     result = r
-                    if !subscriptionStore.isSubscribed, boardCountAtCalc >= 3, !hasChargedCurrentHand {
+                    if !isSubscribed, boardCountAtCalc >= 3, !hasChargedCurrentHand {
                         OddsCalculatorUsage.consumeOne()
                         hasChargedCurrentHand = true
                     }
@@ -809,6 +823,7 @@ struct OddsCalculatorView: View {
 private struct AttachHandToSessionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var settingsStore: SettingsStore
     let handDraft: PokerSession.AttachedHand
     let preselectedSessionID: UUID?
     let onAttachToNewSession: (PokerSession.AttachedHand) -> Void
@@ -867,9 +882,13 @@ private struct AttachHandToSessionSheet: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Text(session.formattedAmount)
+                                    Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
                                         .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(session.amount >= 0 ? .green : .red)
+                                        .foregroundStyle(
+                                            session.isWin
+                                            ? settingsStore.settings.profitLossColorScheme.winColor
+                                            : (session.isLoss ? settingsStore.settings.profitLossColorScheme.lossColor : .secondary)
+                                        )
                                     if session.id == preselectedSessionID {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundStyle(AppTheme.accent)
@@ -893,8 +912,10 @@ private struct AttachHandToSessionSheet: View {
     }
 }
 
-#Preview {
-    OddsCalculatorView()
-        .environmentObject(SubscriptionStore.shared)
-        .environmentObject(SessionStore())
+private struct OddsCalculatorView_Previews: PreviewProvider {
+    static var previews: some View {
+        OddsCalculatorView()
+            .environmentObject(SubscriptionStore.shared)
+            .environmentObject(SessionStore())
+    }
 }

@@ -21,6 +21,23 @@ struct SettingsView: View {
     @State private var restoreResultTitle = "Restore"
     @State private var restoreResultMessage = ""
     @State private var showingPaywall = false
+
+    private var appVersionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String
+        let build = info?["CFBundleVersion"] as? String
+
+        switch (version, build) {
+        case let (version?, build?) where !version.isEmpty && !build.isEmpty && version != build:
+            return "\(version) (\(build))"
+        case let (version?, _ ) where !version.isEmpty:
+            return version
+        case let (_, build?) where !build.isEmpty:
+            return build
+        default:
+            return "Unknown"
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -371,7 +388,7 @@ struct SettingsView: View {
             HStack {
                 Text("Version")
                 Spacer()
-                Text("1.0")
+                Text(appVersionText)
                     .foregroundStyle(AppTheme.secondaryText)
             }
             
@@ -486,9 +503,11 @@ struct ExportSheet: View {
     }
 }
 
-#Preview {
-    SettingsView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
-        .environmentObject(SubscriptionStore.shared)
+private struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        SettingsView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+            .environmentObject(SubscriptionStore.shared)
+    }
 }

@@ -129,6 +129,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
     }
     
     var isWin: Bool { amount > 0 }
+    var isLoss: Bool { amount < 0 }
+    var isBreakEven: Bool { amount == 0 }
     
     var hourlyRate: Double? {
         guard let hours = hoursPlayed, hours > 0 else { return nil }
@@ -244,9 +246,9 @@ enum GameType: String, Codable, CaseIterable {
         }
     }
     
-    /// Formats shown in pickers (excludes legacy PLO, homeGame, online)
+    /// Formats shown in pickers (legacy PLO remains represented by Cash + variant)
     static var formatOptions: [GameType] {
-        [.cash, .tournament, .sitAndGo]
+        [.cash, .homeGame, .online, .tournament, .sitAndGo]
     }
 }
 

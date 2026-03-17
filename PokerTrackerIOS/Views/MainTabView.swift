@@ -31,9 +31,11 @@ struct MainTabView: View {
     }
 }
 
-#Preview {
-    MainTabView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
-        .environmentObject(SubscriptionStore.shared)
+private struct MainTabView_Previews: PreviewProvider {
+    static var previews: some View {
+        MainTabView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+            .environmentObject(SubscriptionStore.shared)
+    }
 }

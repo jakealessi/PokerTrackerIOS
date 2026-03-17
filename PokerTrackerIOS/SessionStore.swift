@@ -6,6 +6,24 @@
 import Foundation
 import SwiftUI
 
+enum ProfitBreakdownDimension: String, CaseIterable, Identifiable {
+    case venue = "Venue"
+    case gameType = "Game Type"
+    case variant = "Variant"
+    case stakes = "Stakes"
+    case weekday = "Weekday"
+
+    var id: String { rawValue }
+}
+
+struct ProfitBreakdownEntry: Identifiable, Equatable {
+    let label: String
+    let profit: Double
+    let sessions: Int
+
+    var id: String { label }
+}
+
 class SessionStore: ObservableObject {
     struct SessionsBackup: Codable {
         let version: Int
@@ -83,33 +101,47 @@ class SessionStore: ObservableObject {
             let nextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? to
             result = result.filter { $0.date < nextDay }
         }
-        if !searchText.isEmpty {
-            let search = searchText.lowercased()
-            result = result.filter {
-                $0.notes.lowercased().contains(search) ||
-                ($0.handNotes?.lowercased().contains(search) ?? false) ||
-                ($0.venue?.lowercased().contains(search) ?? false) ||
-                ($0.stakes?.lowercased().contains(search) ?? false) ||
-                ($0.variant?.lowercased().contains(search) ?? false) ||
-                $0.attachedHands.contains(where: { hand in
-                    hand.playerHands.joined(separator: " ").lowercased().contains(search) ||
-                    hand.resultSummary.joined(separator: " ").lowercased().contains(search) ||
-                    (hand.note?.lowercased().contains(search) ?? false)
-                }) ||
-                $0.gameType.rawValue.lowercased().contains(search)
-            }
-        }
         return result.sorted {
             if $0.date != $1.date { return $0.date > $1.date }
             return $0.id.uuidString > $1.id.uuidString
         }
+    }
+
+    /// Sessions filtered for the list UI (game/date filters plus search text).
+    var listSessions: [PokerSession] {
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSearch.isEmpty else { return filteredSessions }
+
+        let search = trimmedSearch.lowercased()
+        return filteredSessions.filter { session in
+            session.notes.lowercased().contains(search) ||
+            (session.handNotes?.lowercased().contains(search) ?? false) ||
+            (session.venue?.lowercased().contains(search) ?? false) ||
+            (session.stakes?.lowercased().contains(search) ?? false) ||
+            session.displayVariant.lowercased().contains(search) ||
+            session.tags.contains(where: { $0.lowercased().contains(search) }) ||
+            session.attachedHands.contains(where: { hand in
+                hand.playerHands.joined(separator: " ").lowercased().contains(search) ||
+                hand.resultSummary.joined(separator: " ").lowercased().contains(search) ||
+                (hand.note?.lowercased().contains(search) ?? false)
+            }) ||
+            session.gameType.rawValue.lowercased().contains(search)
+        }
+    }
+
+    var hasActiveListFilters: Bool {
+        filterGameType != nil ||
+        filterDateFrom != nil ||
+        filterDateTo != nil ||
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     // MARK: - Core Stats
     var totalProfit: Double { filteredSessions.reduce(0) { $0 + $1.amount } }
     var totalSessions: Int { filteredSessions.count }
     var winCount: Int { filteredSessions.filter { $0.isWin }.count }
-    var lossCount: Int { filteredSessions.filter { !$0.isWin }.count }
+    var lossCount: Int { filteredSessions.filter { $0.isLoss }.count }
+    var breakEvenCount: Int { filteredSessions.filter { $0.isBreakEven }.count }
     var winRate: Double {
         guard totalSessions > 0 else { return 0 }
         return Double(winCount) / Double(totalSessions) * 100
@@ -141,7 +173,7 @@ class SessionStore: ObservableObject {
     var currentLossStreak: Int {
         var streak = 0
         for session in filteredSessions.sorted(by: { $0.date > $1.date }) {
-            if !session.isWin { streak += 1 } else { break }
+            if session.isLoss { streak += 1 } else { break }
         }
         return streak
     }
@@ -157,9 +189,9 @@ class SessionStore: ObservableObject {
     // MARK: - Chart Data
     var profitOverTime: [(Date, Double)] {
         var running: Double = 0
-        return filteredSessions.sorted { $0.date < $1.date }.map { session in
-            running += session.amount
-            return (session.date, running)
+        return filteredDailyProfit.map { day, profit in
+            running += profit
+            return (day, running)
         }
     }
 
@@ -167,10 +199,10 @@ class SessionStore: ObservableObject {
     var drawdownOverTime: [(Date, Double)] {
         var running: Double = 0
         var peak: Double = 0
-        return filteredSessions.sorted { $0.date < $1.date }.map { session in
-            running += session.amount
+        return filteredDailyProfit.map { day, profit in
+            running += profit
             peak = max(peak, running)
-            return (session.date, running - peak)
+            return (day, running - peak)
         }
     }
 
@@ -199,6 +231,38 @@ class SessionStore: ObservableObject {
                 sessions: count,
                 total: total
             )
+        }
+    }
+
+    func profitBreakdown(for dimension: ProfitBreakdownDimension) -> [ProfitBreakdownEntry] {
+        switch dimension {
+        case .venue:
+            return groupedProfitBreakdown { session in
+                VenueCleaner.clean(session.venue) ?? "Unknown Venue"
+            }
+        case .gameType:
+            return groupedProfitBreakdown { session in
+                session.gameType.rawValue
+            }
+        case .variant:
+            return groupedProfitBreakdown { session in
+                PokerSession.abbreviation(for: session.displayVariant)
+            }
+        case .stakes:
+            return groupedProfitBreakdown { session in
+                let trimmed = session.stakes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? "Unknown Stakes" : trimmed
+            }
+        case .weekday:
+            return weekdayPerformance
+                .filter { $0.sessions > 0 }
+                .map { point in
+                    ProfitBreakdownEntry(
+                        label: point.label,
+                        profit: point.total,
+                        sessions: point.sessions
+                    )
+                }
         }
     }
     
@@ -236,7 +300,12 @@ class SessionStore: ObservableObject {
             .sorted { $0.0 < $1.0 }
     }
     
-    var lastSession: PokerSession? { sessions.first }
+    var lastSession: PokerSession? {
+        sessions.max {
+            if $0.date != $1.date { return $0.date < $1.date }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+    }
     
     /// Date range for charts: earliest session date through today
     var chartDateRange: (start: Date, end: Date)? {
@@ -245,7 +314,7 @@ class SessionStore: ObservableObject {
         let first = filteredSessions.min(by: { $0.date < $1.date })!.date
         let last = filteredSessions.max(by: { $0.date < $1.date })!.date
         let today = calendar.startOfDay(for: Date())
-        let end = last > today ? last : today
+        let end = endOfDay(for: max(last, today), using: calendar)
         let start = calendar.startOfDay(for: first)
         return (start, end)
     }
@@ -267,7 +336,7 @@ class SessionStore: ObservableObject {
         let first = filteredSessions.min(by: { $0.date < $1.date })!.date
         let last = filteredSessions.max(by: { $0.date < $1.date })!.date
         let today = calendar.startOfDay(for: Date())
-        let end = last > today ? last : today
+        let end = endOfDay(for: max(last, today), using: calendar)
         return (calendar.startOfDay(for: first), end)
     }
     
@@ -288,7 +357,7 @@ class SessionStore: ObservableObject {
         let last = sessions.max(by: { $0.date < $1.date })!.date
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        return (first, last > today ? last : today)
+        return (calendar.startOfDay(for: first), endOfDay(for: max(last, today), using: calendar))
     }
     
     var thisMonthProfit: Double {
@@ -344,12 +413,14 @@ class SessionStore: ObservableObject {
     
     // MARK: - CRUD
     func addSession(_ session: PokerSession) {
-        sessions.insert(session, at: 0)
+        sessions = sortedSessions(sessions + [session])
     }
     
     func updateSession(_ session: PokerSession) {
         if let i = sessions.firstIndex(where: { $0.id == session.id }) {
-            sessions[i] = session
+            var updated = sessions
+            updated[i] = session
+            sessions = sortedSessions(updated)
         }
     }
 
@@ -361,6 +432,22 @@ class SessionStore: ObservableObject {
     func deleteSession(_ session: PokerSession) {
         SessionImageStore.delete(imageIds: session.imageIds)
         sessions.removeAll { $0.id == session.id }
+    }
+
+    private func groupedProfitBreakdown(_ labelForSession: (PokerSession) -> String) -> [ProfitBreakdownEntry] {
+        Dictionary(grouping: filteredSessions, by: labelForSession)
+            .map { label, sessions in
+                ProfitBreakdownEntry(
+                    label: label,
+                    profit: sessions.reduce(0) { $0 + $1.amount },
+                    sessions: sessions.count
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.profit != rhs.profit { return lhs.profit > rhs.profit }
+                if lhs.sessions != rhs.sessions { return lhs.sessions > rhs.sessions }
+                return lhs.label < rhs.label
+            }
     }
     
     
@@ -375,7 +462,7 @@ class SessionStore: ObservableObject {
         }
 
         var csv = "Date,Game Format,Variant,Amount,Hours,Stakes,Venue,Tags,Notes\n"
-        for s in filteredSessions.sorted(by: { $0.date > $1.date }) {
+        for s in sessions.sorted(by: { $0.date > $1.date }) {
             let date = ISO8601DateFormatter().string(from: s.date)
             let amount = PokerSession.formatCurrency(s.amount, currency: currency)
             let hours = s.hoursPlayed.map { String($0) } ?? ""
@@ -420,13 +507,13 @@ class SessionStore: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
 
         if let backup = try? decoder.decode(SessionsBackup.self, from: data) {
-            sessions = backup.sessions.sorted { $0.date > $1.date }
+            replaceSessionsWithCleanup(backup.sessions)
             return sessions.count
         }
 
         // Backward compatibility: allow restoring raw [PokerSession] files.
         if let restored = try? decoder.decode([PokerSession].self, from: data) {
-            sessions = restored.sorted { $0.date > $1.date }
+            replaceSessionsWithCleanup(restored)
             return sessions.count
         }
 
@@ -467,13 +554,40 @@ class SessionStore: ObservableObject {
 
         isApplyingCloudSync = true
         cloudSyncUpdatedAt = cloudUpdatedAt
-        sessions = sortedSessions(decoded)
+        replaceSessionsWithCleanup(decoded)
         cloudSyncUpdatedAt = nil
         isApplyingCloudSync = false
     }
 
     private func decodeSessions(from data: Data) -> [PokerSession]? {
         try? JSONDecoder().decode([PokerSession].self, from: data)
+    }
+
+    private func replaceSessionsWithCleanup(_ restoredSessions: [PokerSession]) {
+        let currentImageIDs = Set(sessions.flatMap(\.imageIds))
+        let restoredImageIDs = Set(restoredSessions.flatMap(\.imageIds))
+        let orphanedImageIDs = currentImageIDs.subtracting(restoredImageIDs)
+        if !orphanedImageIDs.isEmpty {
+            SessionImageStore.delete(imageIds: Array(orphanedImageIDs))
+        }
+        sessions = sortedSessions(restoredSessions)
+    }
+
+    private var filteredDailyProfit: [(Date, Double)] {
+        let calendar = Calendar.current
+        return Dictionary(grouping: filteredSessions) { session in
+            calendar.startOfDay(for: session.date)
+        }
+        .map { day, sessions in
+            (day, sessions.reduce(0) { $0 + $1.amount })
+        }
+        .sorted { $0.0 < $1.0 }
+    }
+
+    private func endOfDay(for date: Date, using calendar: Calendar) -> Date {
+        let start = calendar.startOfDay(for: date)
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        return nextDay.addingTimeInterval(-1)
     }
 
     private func sortedSessions(_ source: [PokerSession]) -> [PokerSession] {
@@ -486,6 +600,9 @@ class SessionStore: ObservableObject {
                 }
                 return normalized
             }
-            .sorted { $0.date > $1.date }
+            .sorted {
+                if $0.date != $1.date { return $0.date > $1.date }
+                return $0.id.uuidString > $1.id.uuidString
+            }
     }
 }

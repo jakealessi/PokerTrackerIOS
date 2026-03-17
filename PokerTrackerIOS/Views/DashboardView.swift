@@ -6,12 +6,21 @@
 import SwiftUI
 
 struct DashboardView: View {
+    private struct DashboardMetric: Identifiable {
+        let label: String
+        let value: String
+        let tint: Color
+
+        var id: String { label }
+    }
+
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @State private var showingAddSession = false
     @State private var showingPaywall = false
     @State private var showingSettings = false
+    @State private var chatEditSession: PokerSession?
     @State private var chatMessages: [ChatMessage] = []
     @State private var conversationId = UUID().uuidString
     @State private var inputText = ""
@@ -21,7 +30,41 @@ struct DashboardView: View {
     @State private var aiTask: Task<Void, Never>?
     
     private var bankroll: Double {
-        settingsStore.settings.startingBankroll + sessionStore.totalProfit
+        settingsStore.settings.startingBankroll + allSessionsProfit
+    }
+
+    private var allSessions: [PokerSession] {
+        sessionStore.sessions
+    }
+
+    private var allSessionsProfit: Double {
+        allSessions.reduce(0) { $0 + $1.amount }
+    }
+
+    private var allSessionsCount: Int {
+        allSessions.count
+    }
+
+    private var allSessionsWinCount: Int {
+        allSessions.filter(\.isWin).count
+    }
+
+    private var allSessionsLossCount: Int {
+        allSessions.filter(\.isLoss).count
+    }
+
+    private var allSessionsWinRate: Double {
+        guard allSessionsCount > 0 else { return 0 }
+        return Double(allSessionsWinCount) / Double(allSessionsCount) * 100
+    }
+
+    private var allSessionsTotalHours: Double {
+        allSessions.compactMap(\.hoursPlayed).reduce(0, +)
+    }
+
+    private var allSessionsHourlyRate: Double? {
+        guard allSessionsTotalHours > 0 else { return nil }
+        return allSessionsProfit / allSessionsTotalHours
     }
 
     private var canUseAISessionCrafter: Bool {
@@ -30,6 +73,26 @@ struct DashboardView: View {
     
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    private var hourlyRateLabel: String { "\(StakesPreset.symbol(for: settingsStore.settings.currency))/hr" }
+    private var dashboardMetrics: [DashboardMetric] {
+        var metrics = [
+            DashboardMetric(label: "Sessions", value: "\(allSessionsCount)", tint: AppTheme.accent),
+            DashboardMetric(label: "Win Rate", value: String(format: "%.0f%%", allSessionsWinRate), tint: AppTheme.accent),
+            DashboardMetric(label: "W/L", value: "\(allSessionsWinCount)/\(allSessionsLossCount)", tint: AppTheme.accent)
+        ]
+        if settingsStore.settings.showHourlyRate,
+           allSessionsTotalHours > 0,
+           let rate = allSessionsHourlyRate {
+            metrics.append(
+                DashboardMetric(
+                    label: hourlyRateLabel,
+                    value: PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency),
+                    tint: rate >= 0 ? winColor : lossColor
+                )
+            )
+        }
+        return metrics
+    }
     
     var body: some View {
         NavigationStack {
@@ -76,6 +139,9 @@ struct DashboardView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
+            .sheet(item: $chatEditSession) { session in
+                EditSessionView(session: session)
+            }
             .onDisappear {
                 aiTask?.cancel()
             }
@@ -85,57 +151,68 @@ struct DashboardView: View {
     // MARK: - Stats Header
     
     private var statsHeader: some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 2) {
-                Text("Bankroll")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                    .kerning(0.5)
-                Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
-                    .contentTransition(.numericText())
-            }
-            .padding(.top, 2)
-            
-            HStack(spacing: 0) {
-                statItem("\(sessionStore.totalSessions)", "Sessions")
-                statDivider
-                statItem(String(format: "%.0f%%", sessionStore.winRate), "Win Rate")
-                statDivider
-                statItem("\(sessionStore.winCount)/\(sessionStore.lossCount)", "W/L")
-                if sessionStore.totalHoursPlayed > 0, let rate = sessionStore.hourlyRate {
-                    statDivider
-                    statItem(PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency), "$/hr")
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bankroll")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .kerning(0.5)
+                    Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
+                        .contentTransition(.numericText())
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(dashboardMetrics) { metric in
+                            metricChip(metric)
+                        }
+                    }
+                    .padding(.horizontal, 1)
                 }
             }
-            .padding(.vertical, 10)
-            .subtleCard()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
+                    .fill(AppTheme.cardBackground)
+                    .shadow(color: AppTheme.subtleShadow.color, radius: AppTheme.subtleShadow.radius, y: AppTheme.subtleShadow.y)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
+                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+            )
             .padding(.horizontal)
         }
-        .padding(.top, 4)
-        .padding(.bottom, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
     }
 
-    private var statDivider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(width: 1, height: 28)
-    }
-    
-    private func statItem(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 3) {
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
+    private func metricChip(_ metric: DashboardMetric) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(metric.label.uppercased())
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
+                .kerning(0.5)
+            Text(metric.value)
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(metric.tint)
+                .monospacedDigit()
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: 74, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(metric.tint.opacity(0.14), lineWidth: 1)
+        )
     }
     
     // MARK: - Chat Area
@@ -217,32 +294,134 @@ struct DashboardView: View {
     }
     
     private func chatBubble(_ message: ChatMessage) -> some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if message.role == .user { Spacer(minLength: 48) }
-            
-            Text(message.text)
-                .font(.body)
-                .foregroundStyle(message.role == .user ? .white : .primary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    message.role == .user
-                    ? AnyShapeStyle(
-                        LinearGradient(
-                            colors: [AppTheme.accent, AppTheme.accent.opacity(0.85)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    : AnyShapeStyle(AppTheme.cardBackground)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: .black.opacity(message.role == .user ? 0.08 : 0.04), radius: 3, y: 1)
-            
+
+            chatMessageContent(message)
+                .frame(maxWidth: 340, alignment: message.role == .user ? .trailing : .leading)
+
             if message.role == .assistant { Spacer(minLength: 48) }
         }
         .padding(.horizontal)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    @ViewBuilder
+    private func chatMessageContent(_ message: ChatMessage) -> some View {
+        if message.role == .assistant,
+           let card = message.card,
+           case .session(let payload) = card,
+           let session = sessionStore.sessions.first(where: { $0.id == payload.sessionID }) {
+            assistantSessionCard(payload, session: session)
+        } else {
+            standardChatBubble(message)
+        }
+    }
+
+    private func standardChatBubble(_ message: ChatMessage) -> some View {
+        Text(message.text)
+            .font(.body)
+            .foregroundStyle(message.role == .user ? .white : .primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                message.role == .user
+                ? AnyShapeStyle(
+                    LinearGradient(
+                        colors: [AppTheme.accent, AppTheme.accent.opacity(0.85)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                : AnyShapeStyle(AppTheme.cardBackground)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: .black.opacity(message.role == .user ? 0.08 : 0.04), radius: 3, y: 1)
+    }
+
+    private func assistantSessionCard(_ payload: ChatMessage.SessionCard, session: PokerSession) -> some View {
+        let sessionTint: Color = {
+            if session.isWin { return winColor }
+            if session.isLoss { return lossColor }
+            return .secondary
+        }()
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Label(payload.headline, systemImage: payload.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .lineLimit(2)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    chatEditSession = sessionStore.sessions.first(where: { $0.id == session.id }) ?? session
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(AppTheme.accent)
+            }
+
+            Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(sessionTint)
+                .monospacedDigit()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(sessionCardPrimaryMeta(session))
+                    .font(.subheadline.weight(.medium))
+
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.caption)
+                    Text(session.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+
+                if let venue = session.venue, !venue.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.caption)
+                        Text(venue)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            if let detail = payload.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AppTheme.cardBackground)
+                .shadow(color: .black.opacity(0.04), radius: 4, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(sessionTint.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func sessionCardPrimaryMeta(_ session: PokerSession) -> String {
+        var parts = [session.displayVariantAbbreviation, session.gameType.abbreviation]
+        if let stakes = session.stakes, !stakes.isEmpty {
+            parts.append(stakes)
+        }
+        if let hours = session.hoursPlayed, hours > 0 {
+            parts.append("\(String(format: "%.1f", hours))h")
+        }
+        return parts.joined(separator: " · ")
     }
     
     // MARK: - Input Bar
@@ -278,10 +457,12 @@ struct DashboardView: View {
             HStack(spacing: 10) {
                 if !chatMessages.isEmpty {
                     Button {
+                        aiTask?.cancel()
                         withAnimation(AppTheme.smoothSpring) {
                             chatMessages.removeAll()
                             conversationId = UUID().uuidString
                             aiError = nil
+                            isAILoading = false
                         }
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
@@ -394,11 +575,20 @@ struct DashboardView: View {
                     existing = AISessionService.applyUpdate(to: existing, fields: fields)
                     sessionStore.updateSession(existing)
                     
-                    let fieldNames = fields.keys.joined(separator: ", ")
+                    let updatedNumber = sessionStore.displayNumber(for: existing) ?? sessionNumber
+                    let fieldNames = fields.keys.sorted().joined(separator: ", ")
                     withAnimation(AppTheme.smoothSpring) {
                         chatMessages.append(ChatMessage(
                             role: .assistant,
-                            text: "Updated session #\(sessionNumber) (\(fieldNames))."
+                            text: "Session #\(updatedNumber) updated",
+                            card: .session(
+                                ChatMessage.SessionCard(
+                                    sessionID: existing.id,
+                                    headline: "Session #\(updatedNumber) updated",
+                                    detail: fieldNames.isEmpty ? nil : "Changed: \(fieldNames)",
+                                    systemImage: "checkmark.circle.fill"
+                                )
+                            )
                         ))
                     }
                     if settingsStore.settings.hapticFeedback { HapticManager.success() }
@@ -461,36 +651,31 @@ struct DashboardView: View {
         )
         sessionStore.addSession(session)
         let num = sessionStore.displayNumber(for: session) ?? 0
-        var summary = buildSummary(parsed, sessionNumber: num)
-        if usedOfflineParser {
-            summary += "\n\n⚠️ Parsed offline — AI was unavailable."
-        }
+        let detail = usedOfflineParser ? "Parsed offline because the AI service was unavailable." : nil
         withAnimation(AppTheme.smoothSpring) {
-            chatMessages.append(ChatMessage(role: .assistant, text: summary))
+            chatMessages.append(
+                ChatMessage(
+                    role: .assistant,
+                    text: "Session #\(num) logged",
+                    card: .session(
+                        ChatMessage.SessionCard(
+                            sessionID: session.id,
+                            headline: "Session #\(num) logged",
+                            detail: detail,
+                            systemImage: "sparkles"
+                        )
+                    )
+                )
+            )
         }
         if settingsStore.settings.hapticFeedback { HapticManager.success() }
-    }
-
-    private func buildSummary(_ p: ParsedSession, sessionNumber: Int) -> String {
-        var parts: [String] = []
-        parts.append("Session #\(sessionNumber) logged!")
-        let amtStr = p.amount >= 0
-            ? PokerSession.formatCurrency(p.amount, currency: settingsStore.settings.currency)
-            : PokerSession.formatCurrency(abs(p.amount), currency: settingsStore.settings.currency)
-        parts.append(p.amount >= 0 ? "Won \(amtStr)" : "Lost \(amtStr)")
-        if let s = p.stakes { parts.append(s) }
-        let variantStr = p.variant ?? p.gameType.rawValue
-        parts.append(PokerSession.abbreviation(for: variantStr))
-        if let v = p.venue { parts.append("at \(v)") }
-        if let h = p.hoursPlayed { parts.append("\(String(format: "%.1f", h))h") }
-        return parts.joined(separator: " · ")
     }
 }
 
 // MARK: - Typing Indicator
 
 struct TypingIndicator: View {
-    @State private var phase = 0.0
+    @State private var isAnimating = false
     
     var body: some View {
         HStack(spacing: 5) {
@@ -498,7 +683,15 @@ struct TypingIndicator: View {
                 Circle()
                     .fill(Color.secondary.opacity(0.5))
                     .frame(width: 7, height: 7)
-                    .offset(y: phase == Double(i) ? -4 : 0)
+                    .scaleEffect(isAnimating ? 1 : 0.72)
+                    .opacity(isAnimating ? 1 : 0.4)
+                    .offset(y: isAnimating ? -4 : 0)
+                    .animation(
+                        .easeInOut(duration: 0.45)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.12),
+                        value: isAnimating
+                    )
             }
         }
         .padding(.horizontal, 16)
@@ -507,16 +700,16 @@ struct TypingIndicator: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 3, y: 1)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
-                phase = 2
-            }
+            isAnimating = true
         }
     }
 }
 
-#Preview {
-    DashboardView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
-        .environmentObject(SubscriptionStore.shared)
+private struct DashboardView_Previews: PreviewProvider {
+    static var previews: some View {
+        DashboardView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+            .environmentObject(SubscriptionStore.shared)
+    }
 }

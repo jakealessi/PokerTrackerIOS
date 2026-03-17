@@ -19,20 +19,24 @@ enum ReminderManager {
 
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
-            let baseDate = lastSessionDate ?? Date()
+            let calendar = Calendar.current
+            let now = Date()
+            let baseDate = lastSessionDate ?? now
 
             for days in schedule {
-                guard let fireDate = Calendar.current.date(byAdding: .day, value: days, to: baseDate),
-                      fireDate > Date() else { continue }
+                guard let reminderDay = calendar.date(byAdding: .day, value: days, to: baseDate) else { continue }
 
                 let content = UNMutableNotificationContent()
                 content.title = "Log Your Session"
                 content.body = messageForDays(days)
                 content.sound = .default
 
-                var comps = Calendar.current.dateComponents([.year, .month, .day], from: fireDate)
+                var comps = calendar.dateComponents([.year, .month, .day], from: reminderDay)
                 comps.hour = 18
                 comps.minute = 0
+
+                guard let scheduledDate = calendar.date(from: comps),
+                      scheduledDate > now else { continue }
 
                 let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
                 let request = UNNotificationRequest(identifier: "\(idPrefix)\(days)", content: content, trigger: trigger)

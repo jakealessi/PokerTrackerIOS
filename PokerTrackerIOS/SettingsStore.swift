@@ -61,7 +61,8 @@ class SettingsStore: ObservableObject {
         UserDefaults.standard.set(updatedAt, forKey: Self.settingsUpdatedAtKey)
 
         guard !isApplyingCloudSync else { return }
-        cloudStore.set(encoded, forKey: Self.cloudSettingsKey)
+        guard let cloudEncoded = try? JSONEncoder().encode(settingsForCloudSync(from: settings)) else { return }
+        cloudStore.set(cloudEncoded, forKey: Self.cloudSettingsKey)
         cloudStore.set(updatedAt, forKey: Self.cloudSettingsUpdatedAtKey)
         cloudStore.synchronize()
     }
@@ -73,10 +74,21 @@ class SettingsStore: ObservableObject {
         guard let cloudData = cloudStore.data(forKey: Self.cloudSettingsKey),
               let decoded = try? JSONDecoder().decode(AppSettings.self, from: cloudData) else { return }
 
+        var mergedSettings = decoded
+        mergedSettings.geminiAPIKey = settings.geminiAPIKey
+        mergedSettings.openAIAPIKey = settings.openAIAPIKey
+
         isApplyingCloudSync = true
         cloudSyncUpdatedAt = cloudUpdatedAt
-        settings = decoded
+        settings = mergedSettings
         cloudSyncUpdatedAt = nil
         isApplyingCloudSync = false
+    }
+
+    private func settingsForCloudSync(from settings: AppSettings) -> AppSettings {
+        var cloudSettings = settings
+        cloudSettings.geminiAPIKey = nil
+        cloudSettings.openAIAPIKey = nil
+        return cloudSettings
     }
 }

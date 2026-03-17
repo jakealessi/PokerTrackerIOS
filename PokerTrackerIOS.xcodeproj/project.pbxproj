@@ -37,7 +37,6 @@
 		A1000036 /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000036 /* SubscriptionStore.swift */; };
 		A1000037 /* SubscriptionPaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000037 /* SubscriptionPaywallView.swift */; };
 		A1000038 /* AISessionCrafterUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000038 /* AISessionCrafterUsage.swift */; };
-		A1000039 /* PokerTrackerIOS.storekit in Resources */ = {isa = PBXBuildFile; fileRef = A2000039 /* PokerTrackerIOS.storekit */; };
 		A1000040 /* AppURLs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040 /* AppURLs.swift */; };
 		A1000041 /* OddsCalculatorUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000041 /* OddsCalculatorUsage.swift */; };
 		A1000042 /* PokerEquityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042 /* PokerEquityEngine.swift */; };
@@ -263,7 +262,6 @@
 			files = (
 				A1000003 /* Assets.xcassets in Resources */,
 				A1000025 /* APIKeys.plist in Resources */,
-				A1000039 /* PokerTrackerIOS.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,7 +282,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ ! -f \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\" ]; then cp \"${SRCROOT}/PokerTrackerIOS/APIKeys.example.plist\" \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\"; fi\n";
+			shellScript = "if [ ! -f \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\" ]; then cp \"${SRCROOT}/PokerTrackerIOS/APIKeys.example.plist\" \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\"; fi\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  gemini=$(plutil -extract GeminiAPIKey raw -o - \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\" 2>/dev/null || true)\n  openai=$(plutil -extract OpenAIAPIKey raw -o - \"${SRCROOT}/PokerTrackerIOS/APIKeys.plist\" 2>/dev/null || true)\n  if [ -n \"$gemini\" ] && [ \"$gemini\" != \"your-gemini-key-here\" ]; then\n    echo \"error: APIKeys.plist contains a real Gemini key in Release. Remove it before shipping.\"\n    exit 1\n  fi\n  if [ -n \"$openai\" ] && [ \"$openai\" != \"your-openai-key-here\" ]; then\n    echo \"error: APIKeys.plist contains a real OpenAI key in Release. Remove it before shipping.\"\n    exit 1\n  fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -461,7 +459,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PokerTrackerIOS/PokerTrackerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
@@ -475,7 +473,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jakealessi.PokerTrackerIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -491,7 +489,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PokerTrackerIOS/PokerTrackerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = G687R7VFQV;
 				ENABLE_PREVIEWS = YES;
@@ -505,7 +503,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jakealessi.PokerTrackerIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

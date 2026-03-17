@@ -209,10 +209,15 @@ struct PokerEquityEngine {
         self.deadCards = deadCards
     }
 
-    /// Max runouts for exact enumeration; above this we use Monte Carlo.
-    private static let exactThreshold = 50_000
-    /// Monte Carlo sample count when exact would be too slow.
-    private static let monteCarloSamples = 60_000
+    /// Fixed Monte Carlo budget. If exact has to process more runouts than this,
+    /// Monte Carlo is usually the cheaper path.
+    private static let monteCarloSamples = 100_000
+    /// Adaptive MC settings: run in batches, stop early once precision is good enough.
+    private static let monteCarloMinSamples = 25_000
+    private static let monteCarloBatchSize = 10_000
+    private static let monteCarloChunkSize = 2_500
+    private static let monteCarloConfidenceZ = 1.96
+    private static let monteCarloTargetHalfWidthPercent = 0.30
     private typealias FiveIndexCombo = (Int, Int, Int, Int, Int)
     private typealias TwoIndexCombo = (Int, Int)
     private typealias ThreeIndexCombo = (Int, Int, Int)
@@ -221,8 +226,35 @@ struct PokerEquityEngine {
     private static let plo5HandTwoCombos = makeTwoIndexCombinations(n: 5)
     private static let ploBoardThreeCombos = makeThreeIndexCombinations(n: 5)
 
+    private struct SplitMix64 {
+        private var state: UInt64
+
+        init(seed: UInt64) {
+            self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed
+        }
+
+        mutating func nextUInt64() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+
+        mutating func nextInt(upperBound: Int) -> Int {
+            precondition(upperBound > 0)
+            return Int(nextUInt64() % UInt64(upperBound))
+        }
+    }
+
     func calculate() -> EquityResult? {
-        let used = Set(hands.flatMap { $0 } + board + deadCards)
+        guard board.count <= 5 else { return nil }
+        guard hands.allSatisfy({ $0.isEmpty || $0.count == gameType.cardsPerHand }) else { return nil }
+
+        let allKnownCards = hands.flatMap { $0 } + board + deadCards
+        let used = Set(allKnownCards)
+        guard used.count == allKnownCards.count else { return nil }
+
         let deck = PlayingCard.fullDeck.filter { !used.contains($0) }
 
         let cardsToDeal = 5 - board.count
@@ -237,25 +269,11 @@ struct PokerEquityEngine {
             evaluateAll(board: board, wins: &wins, ties: &ties, tieScratch: &tieScratch)
             total = 1
         } else {
-            let totalCombos = countCombinations(n: deck.count, k: cardsToDeal)
-            let useMonteCarlo = board.count == 0 || totalCombos > Double(Self.exactThreshold)
+            let useMonteCarlo = shouldUseMonteCarlo(cardsToDeal: cardsToDeal, deckCount: deck.count)
             if !useMonteCarlo {
-                // Exact enumeration (flop/turn only; preflop always uses Monte Carlo)
-                var combo = Array(repeating: 0, count: cardsToDeal)
-                var fullBoard = board
-                fullBoard.reserveCapacity(5)
-                enumerateCombinations(n: deck.count, k: cardsToDeal, start: 0, depth: 0, combo: &combo) { runoutIndices in
-                    if fullBoard.count > board.count {
-                        fullBoard.removeLast(fullBoard.count - board.count)
-                    }
-                    for i in 0..<cardsToDeal {
-                        fullBoard.append(deck[runoutIndices[i]])
-                    }
-                    evaluateAll(board: fullBoard, wins: &wins, ties: &ties, tieScratch: &tieScratch)
-                    total += 1
-                }
+                total = runExactEnumerated(deck: deck, cardsToDeal: cardsToDeal, wins: &wins, ties: &ties)
             } else {
-                // Monte Carlo sampling
+                // Monte Carlo is cheaper once exact would exceed the fixed runout budget.
                 total = runMonteCarlo(deck: deck, cardsToDeal: cardsToDeal, wins: &wins, ties: &ties)
             }
         }
@@ -272,47 +290,263 @@ struct PokerEquityEngine {
         return result
     }
 
-    private func runMonteCarlo(deck: [PlayingCard], cardsToDeal: Int, wins: inout [Int], ties: inout [Double]) -> Int {
-        let maxSamples = min(Self.monteCarloSamples, Int(countCombinations(n: deck.count, k: cardsToDeal)))
-        let samples = min(maxSamples, adaptiveMonteCarloSamples(cardsToDeal: cardsToDeal))
-        var indices = Array(0..<deck.count)
+    private func shouldUseMonteCarlo(cardsToDeal: Int, deckCount: Int) -> Bool {
+        let totalRunouts = countCombinations(n: deckCount, k: cardsToDeal)
+        return totalRunouts > Double(Self.monteCarloSamples)
+    }
+
+    private func runExactEnumerated(deck: [PlayingCard], cardsToDeal: Int, wins: inout [Int], ties: inout [Double]) -> Int {
+        let firstChoiceCount = deck.count - cardsToDeal + 1
+        let chunkCount = max(1, firstChoiceCount)
+
+        if chunkCount == 1 {
+            return runExactChunk(
+                deck: deck,
+                cardsToDeal: cardsToDeal,
+                firstChoiceRange: 0..<firstChoiceCount,
+                wins: &wins,
+                ties: &ties
+            )
+        }
+
+        let lock = NSLock()
+        var total = 0
+
+        DispatchQueue.concurrentPerform(iterations: chunkCount) { chunkIndex in
+            var localWins = Array(repeating: 0, count: hands.count)
+            var localTies = Array(repeating: 0.0, count: hands.count)
+            let localTotal = runExactChunk(
+                deck: deck,
+                cardsToDeal: cardsToDeal,
+                firstChoiceRange: chunkIndex..<(chunkIndex + 1),
+                wins: &localWins,
+                ties: &localTies
+            )
+
+            lock.lock()
+            total += localTotal
+            for handIndex in wins.indices {
+                wins[handIndex] += localWins[handIndex]
+                ties[handIndex] += localTies[handIndex]
+            }
+            lock.unlock()
+        }
+
+        return total
+    }
+
+    private func runExactChunk(
+        deck: [PlayingCard],
+        cardsToDeal: Int,
+        firstChoiceRange: Range<Int>,
+        wins: inout [Int],
+        ties: inout [Double]
+    ) -> Int {
         var tieScratch = Array(repeating: 0, count: hands.count)
         var fullBoard = board
         fullBoard.reserveCapacity(5)
+        var combo = Array(repeating: 0, count: cardsToDeal)
+        var total = 0
 
-        for _ in 0..<samples {
-            // Fisher-Yates partial shuffle: random k cards without replacement
-            for i in 0..<cardsToDeal {
-                let j = i + Int.random(in: 0..<(deck.count - i))
-                indices.swapAt(i, j)
+        for firstChoice in firstChoiceRange {
+            combo[0] = firstChoice
+            enumerateCombinations(
+                n: deck.count,
+                k: cardsToDeal,
+                start: firstChoice + 1,
+                depth: 1,
+                combo: &combo
+            ) { runoutIndices in
+                if fullBoard.count > board.count {
+                    fullBoard.removeLast(fullBoard.count - board.count)
+                }
+                for i in 0..<cardsToDeal {
+                    fullBoard.append(deck[runoutIndices[i]])
+                }
+                evaluateAll(board: fullBoard, wins: &wins, ties: &ties, tieScratch: &tieScratch)
+                total += 1
             }
-            if fullBoard.count > board.count {
-                fullBoard.removeLast(fullBoard.count - board.count)
-            }
-            for i in 0..<cardsToDeal {
-                fullBoard.append(deck[indices[i]])
-            }
-            evaluateAll(board: fullBoard, wins: &wins, ties: &ties, tieScratch: &tieScratch)
         }
-        return samples
+
+        return total
     }
 
-    private func adaptiveMonteCarloSamples(cardsToDeal: Int) -> Int {
-        // Keep total 5-card hand evaluations roughly bounded as table complexity rises.
-        let combosPerHand: Int
-        switch gameType {
-        case .nlh:
-            combosPerHand = Self.nlhFiveFromSevenCombos.count // 21
-        case .plo:
-            combosPerHand = Self.ploHandTwoCombos.count * Self.ploBoardThreeCombos.count // 60
-        case .plo5:
-            combosPerHand = Self.plo5HandTwoCombos.count * Self.ploBoardThreeCombos.count // 100
+    private func runMonteCarlo(deck: [PlayingCard], cardsToDeal: Int, wins: inout [Int], ties: inout [Double]) -> Int {
+        let maxSamples = min(Self.monteCarloSamples, Int(countCombinations(n: deck.count, k: cardsToDeal)))
+        let minimumSamples = min(maxSamples, Self.monteCarloMinSamples)
+        let baseSeed = monteCarloSeed(cardsToDeal: cardsToDeal)
+        var tieSquares = Array(repeating: 0.0, count: hands.count)
+        var processed = 0
+
+        while processed < maxSamples {
+            let batchSamples = min(Self.monteCarloBatchSize, maxSamples - processed)
+            runMonteCarloBatch(
+                deck: deck,
+                cardsToDeal: cardsToDeal,
+                sampleOffset: processed,
+                sampleCount: batchSamples,
+                baseSeed: baseSeed,
+                wins: &wins,
+                ties: &ties,
+                tieSquares: &tieSquares
+            )
+            processed += batchSamples
+
+            if processed >= minimumSamples,
+               hasMonteCarloConverged(sampleCount: processed, wins: wins, ties: ties, tieSquares: tieSquares) {
+                break
+            }
         }
 
-        let evalsPerSample = max(1, hands.count * combosPerHand)
-        let targetEvaluations = cardsToDeal == 5 ? 3_000_000 : 2_000_000
-        let scaledSamples = targetEvaluations / evalsPerSample
-        return max(10_000, min(Self.monteCarloSamples, scaledSamples))
+        return processed
+    }
+
+    private func runMonteCarloBatch(
+        deck: [PlayingCard],
+        cardsToDeal: Int,
+        sampleOffset: Int,
+        sampleCount: Int,
+        baseSeed: UInt64,
+        wins: inout [Int],
+        ties: inout [Double],
+        tieSquares: inout [Double]
+    ) {
+        let chunkCount = max(1, (sampleCount + Self.monteCarloChunkSize - 1) / Self.monteCarloChunkSize)
+        let lock = NSLock()
+
+        DispatchQueue.concurrentPerform(iterations: chunkCount) { chunkIndex in
+            let chunkStart = chunkIndex * Self.monteCarloChunkSize
+            let chunkSamples = min(Self.monteCarloChunkSize, sampleCount - chunkStart)
+            guard chunkSamples > 0 else { return }
+
+            var localWins = Array(repeating: 0, count: hands.count)
+            var localTies = Array(repeating: 0.0, count: hands.count)
+            var localTieSquares = Array(repeating: 0.0, count: hands.count)
+            var indices = Array(0..<deck.count)
+            var tieScratch = Array(repeating: 0, count: hands.count)
+            var fullBoard = board
+            fullBoard.reserveCapacity(5)
+            var rng = SplitMix64(
+                seed: mixedSeed(baseSeed, salt: UInt64(sampleOffset + chunkStart + 1))
+            )
+
+            for _ in 0..<chunkSamples {
+                for i in 0..<cardsToDeal {
+                    let j = i + rng.nextInt(upperBound: deck.count - i)
+                    indices.swapAt(i, j)
+                }
+                if fullBoard.count > board.count {
+                    fullBoard.removeLast(fullBoard.count - board.count)
+                }
+                for i in 0..<cardsToDeal {
+                    fullBoard.append(deck[indices[i]])
+                }
+                evaluateAllWithMoments(
+                    board: fullBoard,
+                    wins: &localWins,
+                    ties: &localTies,
+                    tieSquares: &localTieSquares,
+                    tieScratch: &tieScratch
+                )
+            }
+
+            lock.lock()
+            for handIndex in wins.indices {
+                wins[handIndex] += localWins[handIndex]
+                ties[handIndex] += localTies[handIndex]
+                tieSquares[handIndex] += localTieSquares[handIndex]
+            }
+            lock.unlock()
+        }
+    }
+
+    private func hasMonteCarloConverged(
+        sampleCount: Int,
+        wins: [Int],
+        ties: [Double],
+        tieSquares: [Double]
+    ) -> Bool {
+        let n = Double(sampleCount)
+        guard n > 0 else { return false }
+
+        for handIndex in wins.indices {
+            let winMean = Double(wins[handIndex]) / n
+            let winVariance = max(0, winMean * (1 - winMean))
+
+            let tieMean = ties[handIndex] / n
+            let tieSecondMoment = tieSquares[handIndex] / n
+            let tieVariance = max(0, tieSecondMoment - tieMean * tieMean)
+
+            let equityMean = (Double(wins[handIndex]) + ties[handIndex]) / n
+            let equitySecondMoment = (Double(wins[handIndex]) + tieSquares[handIndex]) / n
+            let equityVariance = max(0, equitySecondMoment - equityMean * equityMean)
+
+            if confidenceHalfWidthPercent(variance: winVariance, sampleCount: n) > Self.monteCarloTargetHalfWidthPercent {
+                return false
+            }
+            if confidenceHalfWidthPercent(variance: tieVariance, sampleCount: n) > Self.monteCarloTargetHalfWidthPercent {
+                return false
+            }
+            if confidenceHalfWidthPercent(variance: equityVariance, sampleCount: n) > Self.monteCarloTargetHalfWidthPercent {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func confidenceHalfWidthPercent(variance: Double, sampleCount: Double) -> Double {
+        guard sampleCount > 0 else { return .infinity }
+        return Self.monteCarloConfidenceZ * sqrt(variance / sampleCount) * 100
+    }
+
+    private func mixedSeed(_ baseSeed: UInt64, salt: UInt64) -> UInt64 {
+        var value = baseSeed ^ (salt &* 0x9E3779B97F4A7C15)
+        value ^= value >> 30
+        value &*= 0xBF58476D1CE4E5B9
+        value ^= value >> 27
+        value &*= 0x94D049BB133111EB
+        value ^= value >> 31
+        return value == 0 ? 0x9E3779B97F4A7C15 : value
+    }
+
+    private func monteCarloSeed(cardsToDeal: Int) -> UInt64 {
+        var seed: UInt64 = 0xcbf29ce484222325
+        @inline(__always)
+        func cardCode(_ card: PlayingCard) -> UInt64 {
+            let suit: UInt64
+            switch card.suit {
+            case .spades: suit = 0
+            case .hearts: suit = 1
+            case .diamonds: suit = 2
+            case .clubs: suit = 3
+            }
+            return (UInt64(card.rank.rawValue) << 2) | suit
+        }
+        @inline(__always)
+        func mix(_ value: UInt64, into seed: inout UInt64) {
+            seed ^= value
+            seed &*= 0x100000001b3
+        }
+
+        mix(UInt64(gameType.cardsPerHand), into: &seed)
+        mix(UInt64(cardsToDeal), into: &seed)
+        mix(UInt64(hands.count), into: &seed)
+        for hand in hands {
+            mix(UInt64(hand.count), into: &seed)
+            for card in hand {
+                mix(cardCode(card), into: &seed)
+            }
+        }
+        mix(UInt64(board.count), into: &seed)
+        for card in board {
+            mix(cardCode(card), into: &seed)
+        }
+        mix(UInt64(deadCards.count), into: &seed)
+        for card in deadCards {
+            mix(cardCode(card), into: &seed)
+        }
+        return seed
     }
 
     private func enumerateCombinations(n: Int, k: Int, start: Int, depth: Int, combo: inout [Int], block: ([Int]) -> Void) {
@@ -349,6 +583,42 @@ struct PokerEquityEngine {
         let share = 1.0 / Double(tieCount)
         for i in 0..<tieCount {
             ties[tieScratch[i]] += share
+        }
+    }
+
+    private func evaluateAllWithMoments(
+        board: [PlayingCard],
+        wins: inout [Int],
+        ties: inout [Double],
+        tieSquares: inout [Double],
+        tieScratch: inout [Int]
+    ) {
+        var bestRank: UInt64 = 0
+        var tieCount = 0
+
+        for (idx, hand) in hands.enumerated() {
+            let rank = bestHandRank(hand: hand, board: board)
+            if tieCount == 0 || rank > bestRank {
+                bestRank = rank
+                tieScratch[0] = idx
+                tieCount = 1
+            } else if rank == bestRank {
+                tieScratch[tieCount] = idx
+                tieCount += 1
+            }
+        }
+
+        if tieCount == 1 {
+            wins[tieScratch[0]] += 1
+            return
+        }
+
+        let share = 1.0 / Double(tieCount)
+        let shareSquared = share * share
+        for i in 0..<tieCount {
+            let handIndex = tieScratch[i]
+            ties[handIndex] += share
+            tieSquares[handIndex] += shareSquared
         }
     }
 

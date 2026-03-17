@@ -119,23 +119,23 @@ struct AppSettings: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        currency = try c.decode(String.self, forKey: .currency)
-        startingBankroll = try c.decode(Double.self, forKey: .startingBankroll)
-        defaultGameType = try c.decode(GameType.self, forKey: .defaultGameType)
+        currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? AppSettings.default.currency
+        startingBankroll = try c.decodeIfPresent(Double.self, forKey: .startingBankroll) ?? AppSettings.default.startingBankroll
+        defaultGameType = try c.decodeIfPresent(GameType.self, forKey: .defaultGameType) ?? AppSettings.default.defaultGameType
         defaultVariant = try c.decodeIfPresent(String.self, forKey: .defaultVariant)
         defaultStakes = try c.decodeIfPresent(String.self, forKey: .defaultStakes)
-        showHourlyRate = try c.decode(Bool.self, forKey: .showHourlyRate)
-        hapticFeedback = try c.decode(Bool.self, forKey: .hapticFeedback)
-        use24HourTime = try c.decodeIfPresent(Bool.self, forKey: .use24HourTime) ?? false
-        useCompactCurrency = try c.decodeIfPresent(Bool.self, forKey: .useCompactCurrency) ?? false
-        showSessionNumbers = try c.decodeIfPresent(Bool.self, forKey: .showSessionNumbers) ?? true
-        confirmBeforeDelete = try c.decodeIfPresent(Bool.self, forKey: .confirmBeforeDelete) ?? true
-        hasSeenOnboarding = try c.decode(Bool.self, forKey: .hasSeenOnboarding)
+        showHourlyRate = try c.decodeIfPresent(Bool.self, forKey: .showHourlyRate) ?? AppSettings.default.showHourlyRate
+        hapticFeedback = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedback) ?? AppSettings.default.hapticFeedback
+        use24HourTime = try c.decodeIfPresent(Bool.self, forKey: .use24HourTime) ?? AppSettings.default.use24HourTime
+        useCompactCurrency = try c.decodeIfPresent(Bool.self, forKey: .useCompactCurrency) ?? AppSettings.default.useCompactCurrency
+        showSessionNumbers = try c.decodeIfPresent(Bool.self, forKey: .showSessionNumbers) ?? AppSettings.default.showSessionNumbers
+        confirmBeforeDelete = try c.decodeIfPresent(Bool.self, forKey: .confirmBeforeDelete) ?? AppSettings.default.confirmBeforeDelete
+        hasSeenOnboarding = try c.decodeIfPresent(Bool.self, forKey: .hasSeenOnboarding) ?? AppSettings.default.hasSeenOnboarding
         geminiAPIKey = try c.decodeIfPresent(String.self, forKey: .geminiAPIKey)
         openAIAPIKey = try c.decodeIfPresent(String.self, forKey: .openAIAPIKey)
-        profitLossColorScheme = try c.decodeIfPresent(ProfitLossColorScheme.self, forKey: .profitLossColorScheme) ?? .default
+        profitLossColorScheme = try c.decodeIfPresent(ProfitLossColorScheme.self, forKey: .profitLossColorScheme) ?? AppSettings.default.profitLossColorScheme
         workerBaseURL = try c.decodeIfPresent(String.self, forKey: .workerBaseURL) ?? AppSettings.defaultWorkerBaseURL
-        reminderEnabled = try c.decodeIfPresent(Bool.self, forKey: .reminderEnabled) ?? true
+        reminderEnabled = try c.decodeIfPresent(Bool.self, forKey: .reminderEnabled) ?? AppSettings.default.reminderEnabled
     }
 
     func encode(to encoder: Encoder) throws {

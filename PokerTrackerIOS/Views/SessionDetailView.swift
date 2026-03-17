@@ -98,14 +98,17 @@ struct SessionDetailView: View {
     
     private var resultColor: Color {
         let s = currentSession
-        return s.isWin ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor
+        if s.isWin { return settingsStore.settings.profitLossColorScheme.winColor }
+        if s.isLoss { return settingsStore.settings.profitLossColorScheme.lossColor }
+        return .secondary
     }
 
     private var amountCard: some View {
         let s = currentSession
         return VStack(spacing: 10) {
-            if settingsStore.settings.showSessionNumbers {
-                Text("SESSION #\(sessionStore.displayNumber(for: s) ?? 0)")
+            if settingsStore.settings.showSessionNumbers,
+               let displayNumber = sessionStore.displayNumber(for: s) {
+                Text("SESSION #\(displayNumber)")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
                     .kerning(1)
@@ -164,7 +167,7 @@ struct SessionDetailView: View {
                     if let hours = s.hoursPlayed {
                         detailRow("Hours Played", "\(String(format: "%.1f", hours))")
                     }
-                    if let rate = s.hourlyRate {
+                    if settingsStore.settings.showHourlyRate, let rate = s.hourlyRate {
                         detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency) + "/hr")
                     }
                 }
@@ -450,8 +453,10 @@ struct SessionDetailView: View {
     }
 
     private func presentShareSheet(items: [Any]) {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = scene.keyWindow?.rootViewController else { return }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
+              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
         if let popover = vc.popoverPresentationController {
             popover.sourceView = root.view
@@ -556,10 +561,12 @@ struct FlowLayout: Layout {
     }
 }
 
-#Preview {
-    NavigationStack {
-        SessionDetailView(session: PokerSession(amount: 150, date: Date(), notes: "Good session", gameType: .cash, variant: "No Limit Hold'em", hoursPlayed: 4, stakes: "$1/$2", venue: "Bellagio"))
-            .environmentObject(SessionStore())
-            .environmentObject(SettingsStore())
+private struct SessionDetailView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            SessionDetailView(session: PokerSession(amount: 150, date: Date(), notes: "Good session", gameType: .cash, variant: "No Limit Hold'em", hoursPlayed: 4, stakes: "$1/$2", venue: "Bellagio"))
+                .environmentObject(SessionStore())
+                .environmentObject(SettingsStore())
+        }
     }
 }

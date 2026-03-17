@@ -19,11 +19,11 @@ struct SessionsListView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if sessionStore.filteredSessions.isEmpty {
+                if sessionStore.listSessions.isEmpty {
                     emptyState
                 } else {
                     List {
-                        ForEach(sessionStore.filteredSessions) { session in
+                        ForEach(sessionStore.listSessions) { session in
                             NavigationLink { SessionDetailView(session: session) } label: {
                                 SessionRowView(session: session, displayNumber: sessionStore.displayNumber(for: session), currency: settingsStore.settings.currency)
                             }
@@ -56,12 +56,12 @@ struct SessionsListView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .animation(AppTheme.smoothSpring, value: sessionStore.filteredSessions.count)
+                    .animation(AppTheme.smoothSpring, value: sessionStore.listSessions.count)
                 }
                 
                 searchBar
             }
-            .animation(AppTheme.smoothSpring, value: sessionStore.filteredSessions.isEmpty)
+            .animation(AppTheme.smoothSpring, value: sessionStore.listSessions.isEmpty)
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
@@ -123,18 +123,25 @@ struct SessionsListView: View {
     }
     
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        let showingNoMatches = sessionStore.hasActiveListFilters && !sessionStore.sessions.isEmpty
+
+        return VStack(spacing: 16) {
             ZStack {
                 Circle()
                     .fill(AppTheme.accent.opacity(0.08))
                     .frame(width: 64, height: 64)
-                Image(systemName: sessionStore.searchText.isEmpty ? "list.bullet.rectangle" : "magnifyingglass")
+                Image(systemName: showingNoMatches ? "magnifyingglass" : "list.bullet.rectangle")
                     .font(.system(size: 24))
                     .foregroundStyle(AppTheme.accent.opacity(0.5))
             }
-            Text(sessionStore.searchText.isEmpty ? "No Sessions Yet" : "No Matching Sessions")
+            Text(showingNoMatches ? "No Matching Sessions" : "No Sessions Yet")
                 .font(.title3.weight(.semibold))
-            if sessionStore.searchText.isEmpty {
+            if showingNoMatches {
+                Text("Try clearing your search or filters.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
                 Text("Log your first session from the Home tab\nor tap the button below.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -254,8 +261,10 @@ struct FilterView: View {
     }
 }
 
-#Preview {
-    SessionsListView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
+private struct SessionsListView_Previews: PreviewProvider {
+    static var previews: some View {
+        SessionsListView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+    }
 }

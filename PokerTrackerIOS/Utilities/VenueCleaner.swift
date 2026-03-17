@@ -8,23 +8,26 @@ import UIKit
 enum VenueCleaner {
     /// Cleans parsed venue: trims, capitalizes, optionally spell-corrects
     static func clean(_ venue: String?) -> String? {
-        let trimmed = venue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmed = venue?
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ") ?? ""
         guard !trimmed.isEmpty else { return nil }
-        var s = titleCase(trimmed)
+        let shouldNormalizeCase = trimmed == trimmed.lowercased()
+        var s = shouldNormalizeCase ? titleCase(trimmed) : trimmed
         // Only spell-correct when input was all lowercase (likely a typo, not proper noun)
-        if trimmed == trimmed.lowercased(), let corrected = spellCorrect(s), corrected != s {
+        if shouldNormalizeCase, let corrected = spellCorrect(s), corrected != s {
             s = corrected
         }
         return s.isEmpty ? nil : s
     }
     
     private static func titleCase(_ s: String) -> String {
-        s.lowercased()
-            .split(separator: " ")
+        s.split(separator: " ")
             .map { word in
                 let str = String(word)
-                guard let first = str.unicodeScalars.first else { return str }
-                return str.replacingCharacters(in: str.startIndex..<str.index(after: str.startIndex), with: String(first).uppercased())
+                guard let first = str.first else { return str }
+                return String(first).uppercased() + str.dropFirst()
             }
             .joined(separator: " ")
     }

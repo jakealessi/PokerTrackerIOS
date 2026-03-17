@@ -2,7 +2,7 @@
 //  SubscriptionStore.swift
 //  PokerTrackerIOS
 //
-//  StoreKit 2 subscription: $4.99/month with 1 month free trial (Premium).
+//  StoreKit 2 subscription: $1.99/month with 1 month free trial (Premium).
 //  Create product "pro_monthly" (or full ID) in App Store Connect with introductory offer.
 //
 
@@ -15,6 +15,16 @@ final class SubscriptionStore: ObservableObject {
 
     /// Product ID — must match App Store Connect (e.g. "pro_monthly" or "com.yourapp.pokertracker.pro_monthly")
     static let proMonthlyProductID = "pro_monthly"
+    static var fullyQualifiedProductID: String? {
+        Bundle.main.bundleIdentifier.map { "\($0).\(proMonthlyProductID)" }
+    }
+    static var candidateProductIDs: [String] {
+        var ids = [proMonthlyProductID]
+        if let fullyQualifiedProductID, fullyQualifiedProductID != proMonthlyProductID {
+            ids.append(fullyQualifiedProductID)
+        }
+        return ids
+    }
 
     @Published private(set) var products: [Product] = []
     @Published private(set) var purchasedProductIDs: Set<String> = []
@@ -22,7 +32,7 @@ final class SubscriptionStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private var updateListenerTask: Task<Void, Error>?
+    private var updateListenerTask: Task<Void, Never>?
 
     init() {
         updateListenerTask = listenForTransactions()
@@ -40,7 +50,7 @@ final class SubscriptionStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            products = try await Product.products(for: [Self.proMonthlyProductID])
+            products = try await Product.products(for: Self.candidateProductIDs)
             if products.isEmpty {
                 errorMessage = "Subscription product not found. Configure in App Store Connect."
             }
@@ -94,12 +104,12 @@ final class SubscriptionStore: ObservableObject {
         refreshSubscriptionState()
     }
 
-    private func listenForTransactions() -> Task<Void, Error> {
-        Task.detached {
+    private func listenForTransactions() -> Task<Void, Never> {
+        Task {
             for await result in Transaction.updates {
                 guard case .verified(let transaction) = result else { continue }
                 await transaction.finish()
-                await self.updatePurchasedState()
+                await updatePurchasedState()
             }
         }
     }
@@ -114,16 +124,14 @@ final class SubscriptionStore: ObservableObject {
     }
 
     private func refreshSubscriptionState() {
-        isSubscribed = purchasedProductIDs.contains { productID in
-            productID == Self.proMonthlyProductID || productID.hasSuffix(".\(Self.proMonthlyProductID)")
-        }
+        isSubscribed = purchasedProductIDs.contains(where: Self.matchesProMonthlyProductID)
     }
 
     var proMonthlyProduct: Product? {
-        products.first { $0.id == Self.proMonthlyProductID }
+        products.first { Self.matchesProMonthlyProductID($0.id) }
     }
 
-    /// Human-readable subscription summary (e.g. "$4.99/month, 1 month free")
+    /// Human-readable subscription summary (e.g. "$1.99/month, 1 month free")
     var subscriptionDisplayPrice: String? {
         guard let p = proMonthlyProduct else { return nil }
         var text = p.displayPrice + "/month"
@@ -146,6 +154,10 @@ final class SubscriptionStore: ObservableObject {
     /// Call from UI when purchase or other operations fail, or to clear the message.
     func setErrorMessage(_ message: String?) {
         errorMessage = message
+    }
+
+    private static func matchesProMonthlyProductID(_ productID: String) -> Bool {
+        productID == proMonthlyProductID || productID.hasSuffix(".\(proMonthlyProductID)")
     }
 }
 

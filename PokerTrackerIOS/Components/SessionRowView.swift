@@ -13,7 +13,11 @@ struct SessionRowView: View {
     
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
-    private var resultColor: Color { session.isWin ? winColor : lossColor }
+    private var resultColor: Color {
+        if session.isWin { return winColor }
+        if session.isLoss { return lossColor }
+        return .secondary
+    }
     
     private var gameInfoText: String {
         var parts: [String] = [session.displayVariantAbbreviation, session.gameType.abbreviation]
@@ -33,8 +37,8 @@ struct SessionRowView: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            if settingsStore.settings.showSessionNumbers {
-                Text("#\(displayNumber ?? 0)")
+            if settingsStore.settings.showSessionNumbers, let displayNumber {
+                Text("#\(displayNumber)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)

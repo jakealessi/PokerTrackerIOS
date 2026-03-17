@@ -31,156 +31,66 @@ struct AddSessionView: View {
     @State private var imageIds: [String] = []
     @State private var attachedHands: [PokerSession.AttachedHand]
     @State private var selectedTags: Set<String> = []
+    @State private var showSessionDetails: Bool
+    @State private var showTournamentDetails: Bool
+    @State private var showNotesAndTags: Bool
+    @State private var showAttachments: Bool
     
     private let calendar = Calendar.current
-    private let hasPrefilledGame: Bool
+    private let hasPrefilledVariant: Bool
+    private let hasPrefilledStakes: Bool
+    private let hasPrefilledGameType: Bool
+    private let hasPrefilledVenue: Bool
 
     init(prefilledAttachedHands: [PokerSession.AttachedHand] = [], prefilledVariant: String? = nil, prefilledStakes: String? = nil, prefilledGameType: GameType? = nil, prefilledVenue: String? = nil) {
         _attachedHands = State(initialValue: prefilledAttachedHands)
-        let hasPrefill = prefilledVariant != nil || prefilledStakes != nil || prefilledGameType != nil
-        self.hasPrefilledGame = hasPrefill
+        _showSessionDetails = State(initialValue: prefilledStakes != nil || (prefilledVenue?.isEmpty == false))
+        _showTournamentDetails = State(initialValue: prefilledGameType == .tournament || prefilledGameType == .sitAndGo)
+        _showNotesAndTags = State(initialValue: false)
+        _showAttachments = State(initialValue: !prefilledAttachedHands.isEmpty)
+        self.hasPrefilledVariant = prefilledVariant != nil
+        self.hasPrefilledStakes = prefilledStakes != nil
+        self.hasPrefilledGameType = prefilledGameType != nil
+        self.hasPrefilledVenue = prefilledVenue?.isEmpty == false
         if let v = prefilledVariant { _selectedVariant = State(initialValue: v) }
         if let s = prefilledStakes { _stakes = State(initialValue: s) }
         if let g = prefilledGameType { _gameType = State(initialValue: g) }
         if let ven = prefilledVenue, !ven.isEmpty { _venue = State(initialValue: ven) }
     }
     
-    private var parsedAmount: Double {
+    private var parsedAmount: Double? {
         let cleaned = amount.replacingOccurrences(of: "$", with: "")
             .replacingOccurrences(of: ",", with: "")
-        return Double(cleaned) ?? 0
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        return Double(cleaned)
     }
     
-    private var isValid: Bool { parsedAmount > 0 }
+    private var isValid: Bool { parsedAmount != nil }
     
     private var finalVariant: String {
         isCustomVariant ? customVariant : selectedVariant
+    }
+
+    private var supportsStakes: Bool {
+        gameType == .cash || gameType == .homeGame || gameType == .online
+    }
+
+    private var isTournamentGame: Bool {
+        gameType == .tournament || gameType == .sitAndGo
     }
     
     var body: some View {
         NavigationStack {
             Form {
-                Section("Session Result") {
-                    HStack {
-                        Text("Amount")
-                        TextField("0.00", text: $amount)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    
-                    Picker("Result", selection: $isWin) {
-                        Text("Win").tag(true)
-                        Text("Loss").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                
-                Section("Game") {
-                    Picker("Format", selection: $gameType) {
-                        ForEach(GameType.formatOptions, id: \.self) { type in
-                            Text(type.rawValue).tag(type)
-                        }
-                    }
-                    
-                    Picker("Variant", selection: $selectedVariant) {
-                        ForEach(PokerVariant.allCases, id: \.rawValue) { variant in
-                            Text(variant.rawValue).tag(variant.rawValue)
-                        }
-                        Text("Custom").tag("__custom__")
-                    }
-                    .onChange(of: selectedVariant) { _, newValue in
-                        isCustomVariant = (newValue == "__custom__")
-                    }
-                    
-                    if isCustomVariant {
-                        TextField("Enter variant name", text: $customVariant)
-                    }
-                }
-                
-                Section("Details") {
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
-                    .onChange(of: date) { _, newDate in
-                        if let start = startTime {
-                            let comps = calendar.dateComponents([.hour, .minute], from: start)
-                            startTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
-                        }
-                        if let end = endTime {
-                            let comps = calendar.dateComponents([.hour, .minute], from: end)
-                            endTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
-                        }
-                    }
-                    
-                    Toggle("Add start time", isOn: Binding(
-                        get: { startTime != nil },
-                        set: { if $0 { startTime = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: date) ?? date } else { startTime = nil } }
-                    ))
-                    if startTime != nil {
-                        DatePicker("Start", selection: timeBinding(for: date, time: $startTime), displayedComponents: .hourAndMinute)
-                    }
-                    
-                    Toggle("Add end time", isOn: Binding(
-                        get: { endTime != nil },
-                        set: { if $0 { endTime = calendar.date(bySettingHour: 23, minute: 30, second: 0, of: date) ?? date } else { endTime = nil } }
-                    ))
-                    if endTime != nil {
-                        DatePicker("End", selection: timeBinding(for: date, time: $endTime), displayedComponents: .hourAndMinute)
-                    }
-                    
-                    TextField("Hours Played", text: $hoursPlayed)
-                        .keyboardType(.decimalPad)
-                    
-                    if gameType == .cash {
-                        stakesSection
-                    }
-                    
-                    TextField("Venue", text: $venue)
-                }
-                
+                quickEntrySection
+                gameSection
+                sessionDetailsSection
                 if gameType == .tournament || gameType == .sitAndGo {
-                    Section("Tournament") {
-                        TextField("Buy-in", text: $buyIn)
-                            .keyboardType(.decimalPad)
-                        TextField("Cash Out / Prize", text: $cashOut)
-                            .keyboardType(.decimalPad)
-                        TextField("Position", text: $tournamentPosition)
-                            .keyboardType(.numberPad)
-                        TextField("Rebuys", text: $rebuys)
-                            .keyboardType(.numberPad)
-                    }
+                    tournamentSection
                 }
-                
-                Section("Tags") {
-                    TagPickerView(selectedTags: $selectedTags)
-                }
-
-                Section("Notes") {
-                    TextField("Session notes", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                    TextField("Notable hands", text: $handNotes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-
-                if !attachedHands.isEmpty {
-                    Section("Attached Hands") {
-                        ForEach(attachedHands) { hand in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(hand.game)
-                                    .font(.subheadline.weight(.semibold))
-                                Text(hand.playerHands.joined(separator: " vs "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if let note = hand.note, !note.isEmpty {
-                                    Text("Hand Note: \(note)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-                
-                ImageAttachmentsSection(imageIds: $imageIds)
+                notesAndTagsSection
+                attachmentsSection
             }
             .navigationTitle("Log Session")
             .navigationBarTitleDisplayMode(.inline)
@@ -200,18 +110,29 @@ struct AddSessionView: View {
                 }
             }
             .onAppear {
-                guard !hasPrefilledGame else { return }
                 if let last = sessionStore.lastSession {
-                    gameType = last.gameType == .plo ? .cash : last.gameType
-                    loadVariant(last.displayVariant)
-                    stakes = last.stakes ?? settingsStore.settings.defaultStakes ?? ""
-                    venue = last.venue ?? ""
+                    if !hasPrefilledGameType {
+                        gameType = last.gameType == .plo ? .cash : last.gameType
+                    }
+                    if !hasPrefilledVariant {
+                        loadVariant(last.displayVariant)
+                    }
+                    if !hasPrefilledStakes {
+                        stakes = last.stakes ?? settingsStore.settings.defaultStakes ?? ""
+                    }
+                    if !hasPrefilledVenue {
+                        venue = last.venue ?? ""
+                    }
                 } else {
-                    gameType = settingsStore.settings.defaultGameType
-                    if let dv = settingsStore.settings.defaultVariant {
+                    if !hasPrefilledGameType {
+                        gameType = settingsStore.settings.defaultGameType
+                    }
+                    if !hasPrefilledVariant, let dv = settingsStore.settings.defaultVariant {
                         loadVariant(dv)
                     }
-                    stakes = settingsStore.settings.defaultStakes ?? ""
+                    if !hasPrefilledStakes {
+                        stakes = settingsStore.settings.defaultStakes ?? ""
+                    }
                 }
             }
             .toolbar {
@@ -232,6 +153,162 @@ struct AddSessionView: View {
             }
             .onChange(of: hoursPlayed) { _, _ in
                 autoPopulateMissingTimeFields()
+            }
+            .onChange(of: gameType) { _, newValue in
+                let nextSupportsStakes = newValue == .cash || newValue == .homeGame || newValue == .online
+                if nextSupportsStakes {
+                    showSessionDetails = true
+                }
+                if newValue == .tournament || newValue == .sitAndGo {
+                    showTournamentDetails = true
+                }
+            }
+        }
+    }
+
+    private var quickEntrySection: some View {
+        Section("Quick Entry") {
+            HStack {
+                Text("Amount")
+                TextField("0.00", text: $amount)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            Picker("Result", selection: $isWin) {
+                Text("Win").tag(true)
+                Text("Loss").tag(false)
+            }
+            .pickerStyle(.segmented)
+
+            DatePicker("Date", selection: $date, displayedComponents: .date)
+                .onChange(of: date) { _, newDate in
+                    if let start = startTime {
+                        let comps = calendar.dateComponents([.hour, .minute], from: start)
+                        startTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                    }
+                    if let end = endTime {
+                        let comps = calendar.dateComponents([.hour, .minute], from: end)
+                        endTime = calendar.date(bySettingHour: comps.hour ?? 0, minute: comps.minute ?? 0, second: 0, of: newDate)
+                    }
+                }
+        }
+    }
+
+    private var gameSection: some View {
+        Section("Game") {
+            Picker("Format", selection: $gameType) {
+                ForEach(GameType.formatOptions, id: \.self) { type in
+                    Text(type.rawValue).tag(type)
+                }
+            }
+
+            Picker("Variant", selection: $selectedVariant) {
+                ForEach(PokerVariant.allCases, id: \.rawValue) { variant in
+                    Text(variant.rawValue).tag(variant.rawValue)
+                }
+                Text("Custom").tag("__custom__")
+            }
+            .onChange(of: selectedVariant) { _, newValue in
+                isCustomVariant = (newValue == "__custom__")
+            }
+
+            if isCustomVariant {
+                TextField("Enter variant name", text: $customVariant)
+            }
+        }
+    }
+
+    private var sessionDetailsSection: some View {
+        Section {
+            SessionDisclosureToggleRow(
+                title: "Session Details",
+                summary: sessionDetailsSummary,
+                systemImage: "clock.badge",
+                isExpanded: $showSessionDetails
+            )
+            if showSessionDetails {
+                Toggle("Add start time", isOn: Binding(
+                    get: { startTime != nil },
+                    set: { if $0 { startTime = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: date) ?? date } else { startTime = nil } }
+                ))
+                if startTime != nil {
+                    DatePicker("Start", selection: timeBinding(for: date, time: $startTime), displayedComponents: .hourAndMinute)
+                }
+
+                Toggle("Add end time", isOn: Binding(
+                    get: { endTime != nil },
+                    set: { if $0 { endTime = calendar.date(bySettingHour: 23, minute: 30, second: 0, of: date) ?? date } else { endTime = nil } }
+                ))
+                if endTime != nil {
+                    DatePicker("End", selection: timeBinding(for: date, time: $endTime), displayedComponents: .hourAndMinute)
+                }
+
+                TextField("Hours Played", text: $hoursPlayed)
+                    .keyboardType(.decimalPad)
+
+                if supportsStakes {
+                    stakesSection
+                }
+
+                TextField("Venue", text: $venue)
+            }
+        }
+    }
+
+    private var tournamentSection: some View {
+        Section {
+            SessionDisclosureToggleRow(
+                title: "Tournament Details",
+                summary: tournamentSummary,
+                systemImage: "trophy",
+                isExpanded: $showTournamentDetails
+            )
+            if showTournamentDetails {
+                TextField("Buy-in", text: $buyIn)
+                    .keyboardType(.decimalPad)
+                TextField("Cash Out / Prize", text: $cashOut)
+                    .keyboardType(.decimalPad)
+                TextField("Position", text: $tournamentPosition)
+                    .keyboardType(.numberPad)
+                TextField("Rebuys", text: $rebuys)
+                    .keyboardType(.numberPad)
+            }
+        }
+    }
+
+    private var notesAndTagsSection: some View {
+        Section {
+            SessionDisclosureToggleRow(
+                title: "Notes & Tags",
+                summary: notesAndTagsSummary,
+                systemImage: "text.badge.plus",
+                isExpanded: $showNotesAndTags
+            )
+            if showNotesAndTags {
+                TagPickerView(selectedTags: $selectedTags)
+
+                TextField("Session notes", text: $notes, axis: .vertical)
+                    .lineLimit(3...6)
+                TextField("Notable hands", text: $handNotes, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+        }
+    }
+
+    private var attachmentsSection: some View {
+        Section {
+            SessionDisclosureToggleRow(
+                title: "Attachments",
+                summary: attachmentsSummary,
+                systemImage: "paperclip",
+                isExpanded: $showAttachments
+            )
+            if showAttachments {
+                if !attachedHands.isEmpty {
+                    AttachedHandsPreviewList(hands: attachedHands)
+                }
+                ImageAttachmentsSection(imageIds: $imageIds, wrapInSection: false)
             }
         }
     }
@@ -294,6 +371,62 @@ struct AddSessionView: View {
         }
     }
 
+    private var sessionDetailsSummary: String {
+        var parts: [String] = []
+        if let hours = Double(trimmed(hoursPlayed)), hours > 0 {
+            parts.append("\(String(format: "%.1f", hours))h")
+        } else if startTime != nil || endTime != nil {
+            parts.append("Time added")
+        }
+        if supportsStakes, !trimmed(stakes).isEmpty {
+            parts.append(stakes)
+        }
+        if !trimmed(venue).isEmpty {
+            parts.append(trimmed(venue))
+        }
+        return parts.isEmpty ? "Venue, times, hours, and stakes" : parts.joined(separator: " • ")
+    }
+
+    private var tournamentSummary: String {
+        var parts: [String] = []
+        if !trimmed(buyIn).isEmpty {
+            parts.append("Buy-in \(trimmed(buyIn))")
+        }
+        if !trimmed(tournamentPosition).isEmpty {
+            parts.append("Pos \(trimmed(tournamentPosition))")
+        }
+        if let rebuyCount = Int(trimmed(rebuys)), rebuyCount > 0 {
+            parts.append("\(rebuyCount) rebuys")
+        }
+        return parts.isEmpty ? "Buy-in, cash out, placing, and rebuys" : parts.joined(separator: " • ")
+    }
+
+    private var notesAndTagsSummary: String {
+        var parts: [String] = []
+        if !selectedTags.isEmpty {
+            parts.append("\(selectedTags.count) tag\(selectedTags.count == 1 ? "" : "s")")
+        }
+        if !trimmed(notes).isEmpty || !trimmed(handNotes).isEmpty {
+            parts.append("Notes added")
+        }
+        return parts.isEmpty ? "Optional notes, hand notes, and tags" : parts.joined(separator: " • ")
+    }
+
+    private var attachmentsSummary: String {
+        var parts: [String] = []
+        if !imageIds.isEmpty {
+            parts.append("\(imageIds.count) photo\(imageIds.count == 1 ? "" : "s")")
+        }
+        if !attachedHands.isEmpty {
+            parts.append("\(attachedHands.count) hand\(attachedHands.count == 1 ? "" : "s")")
+        }
+        return parts.isEmpty ? "Photos and attached hands" : parts.joined(separator: " • ")
+    }
+
+    private func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func autoPopulateMissingTimeFields() {
         if let calculated = PokerSession.calculatedHours(from: startTime, to: endTime),
            hoursPlayed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -311,34 +444,116 @@ struct AddSessionView: View {
     }
     
     private func saveSession() {
+        guard let parsedAmount else { return }
         if settingsStore.settings.hapticFeedback {
             HapticManager.success()
         }
         let finalAmount = isWin ? parsedAmount : -parsedAmount
         let calculatedHours = PokerSession.calculatedHours(from: startTime, to: endTime)
         let finalHoursPlayed = calculatedHours ?? Double(hoursPlayed)
+        let normalizedVariant = trimmed(finalVariant)
+        let normalizedStakes = trimmed(stakes)
+        let normalizedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedHandNotes = handNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalBuyIn = isTournamentGame ? Double(buyIn) : nil
+        let finalCashOut = isTournamentGame ? Double(cashOut) : nil
+        let finalTournamentPosition = isTournamentGame ? Int(tournamentPosition) : nil
+        let finalRebuys = isTournamentGame ? Int(rebuys) : nil
         let session = PokerSession(
             amount: finalAmount,
             date: date,
-            notes: notes,
+            notes: normalizedNotes,
             gameType: gameType,
-            variant: finalVariant.isEmpty ? nil : finalVariant,
+            variant: normalizedVariant.isEmpty ? nil : normalizedVariant,
             hoursPlayed: finalHoursPlayed,
-            stakes: (gameType == .cash && !stakes.isEmpty) ? stakes : nil,
-            venue: venue.isEmpty ? nil : venue,
-            buyIn: Double(buyIn),
-            cashOut: Double(cashOut),
-            tournamentPosition: Int(tournamentPosition),
-            rebuys: Int(rebuys),
-            handNotes: handNotes.isEmpty ? nil : handNotes,
+            stakes: (supportsStakes && !normalizedStakes.isEmpty) ? normalizedStakes : nil,
+            venue: VenueCleaner.clean(venue),
+            buyIn: finalBuyIn,
+            cashOut: finalCashOut,
+            tournamentPosition: finalTournamentPosition,
+            rebuys: finalRebuys,
+            handNotes: normalizedHandNotes.isEmpty ? nil : normalizedHandNotes,
             attachedHands: attachedHands,
             startTime: startTime,
             endTime: endTime,
             imageIds: imageIds,
-            tags: Array(selectedTags)
+            tags: Array(selectedTags).sorted()
         )
         sessionStore.addSession(session)
         dismiss()
+    }
+}
+
+struct SessionFormDisclosureHeader: View {
+    let title: String
+    let summary: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            Text(summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct SessionDisclosureToggleRow: View {
+    let title: String
+    let summary: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(AppTheme.smoothSpring) {
+                isExpanded.toggle()
+            }
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                SessionFormDisclosureHeader(
+                    title: title,
+                    summary: summary,
+                    systemImage: systemImage
+                )
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct AttachedHandsPreviewList: View {
+    let hands: [PokerSession.AttachedHand]
+
+    var body: some View {
+        ForEach(hands) { hand in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(hand.game)
+                    .font(.subheadline.weight(.semibold))
+                Text(hand.playerHands.joined(separator: " vs "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let note = hand.note, !note.isEmpty {
+                    Text("Hand Note: \(note)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
     }
 }
 
@@ -463,8 +678,10 @@ struct StakesInputView: View {
     }
 }
 
-#Preview {
-    AddSessionView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
+private struct AddSessionView_Previews: PreviewProvider {
+    static var previews: some View {
+        AddSessionView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+    }
 }

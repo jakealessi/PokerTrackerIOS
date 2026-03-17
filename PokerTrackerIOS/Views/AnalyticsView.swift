@@ -13,10 +13,24 @@ struct AnalyticsView: View {
     @State private var showingDateRange = false
     @State private var showingPaywall = false
     @State private var showingSettings = false
+    @State private var profitBreakdownDimension: ProfitBreakdownDimension = .venue
     
     private var currency: String { settingsStore.settings.currency }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+
+    private var currentStreakDisplay: (value: String, color: Color) {
+        guard let latestSession = sessionStore.filteredSessions.first else {
+            return ("0", .secondary)
+        }
+        if latestSession.isWin {
+            return ("\(sessionStore.currentWinStreak)W", winColor)
+        }
+        if latestSession.isLoss {
+            return ("\(sessionStore.currentLossStreak)L", lossColor)
+        }
+        return ("Even", .secondary)
+    }
     
     var body: some View {
         NavigationStack {
@@ -40,17 +54,16 @@ struct AnalyticsView: View {
                         if sessionStore.monthlyProfit.count >= 2 {
                             monthlyBarChart
                         }
-                        if sessionStore.weekdayPerformance.filter({ $0.sessions > 0 }).count >= 2 {
-                            weekdayPerformanceChart
-                        }
-                        if sessionStore.sessionsByVariant.count >= 2 {
-                            variantBreakdown
+                        if sessionStore.totalSessions > 0 {
+                            profitBreakdownChart
                         }
                     } else {
                         chartsLockedSection
                     }
 
-                    detailStats
+                    if sessionStore.totalSessions > 0 {
+                        detailStats
+                    }
                 }
                 .padding()
                 .id(sessionStore.dataVersion)
@@ -101,7 +114,7 @@ struct AnalyticsView: View {
             }
             Text("Charts are part of Premium")
                 .font(.title3.weight(.semibold))
-            Text("Subscribe to see cumulative profit, win/loss, monthly results, and variant breakdown.")
+            Text("Subscribe to see cumulative profit, win/loss, monthly results, and profit breakdowns by venue, game type, and more.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -269,16 +282,25 @@ struct AnalyticsView: View {
     // MARK: - Win/Loss Donut
     
     private var winLossChart: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let breakEvenColor = Color.secondary
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Win / Loss")
                 .font(.headline)
             
             HStack(spacing: 20) {
                 Chart {
-                    SectorMark(angle: .value("Wins", sessionStore.winCount), innerRadius: .ratio(0.6))
-                        .foregroundStyle(winColor)
-                    SectorMark(angle: .value("Losses", max(sessionStore.lossCount, 0)), innerRadius: .ratio(0.6))
-                        .foregroundStyle(lossColor)
+                    if sessionStore.winCount > 0 {
+                        SectorMark(angle: .value("Wins", sessionStore.winCount), innerRadius: .ratio(0.6))
+                            .foregroundStyle(winColor)
+                    }
+                    if sessionStore.lossCount > 0 {
+                        SectorMark(angle: .value("Losses", sessionStore.lossCount), innerRadius: .ratio(0.6))
+                            .foregroundStyle(lossColor)
+                    }
+                    if sessionStore.breakEvenCount > 0 {
+                        SectorMark(angle: .value("Break-even", sessionStore.breakEvenCount), innerRadius: .ratio(0.6))
+                            .foregroundStyle(breakEvenColor)
+                    }
                 }
                 .frame(width: 120, height: 120)
                 
@@ -292,6 +314,13 @@ struct AnalyticsView: View {
                         Circle().fill(lossColor).frame(width: 10, height: 10)
                         Text("\(sessionStore.lossCount) Losses")
                             .font(.subheadline)
+                    }
+                    if sessionStore.breakEvenCount > 0 {
+                        HStack(spacing: 6) {
+                            Circle().fill(breakEvenColor).frame(width: 10, height: 10)
+                            Text("\(sessionStore.breakEvenCount) Break-even")
+                                .font(.subheadline)
+                        }
                     }
                     if let best = sessionStore.bestSession {
                         Text("Best: \(PokerSession.formatCurrency(best.amount, currency: currency))")
@@ -417,77 +446,77 @@ struct AnalyticsView: View {
         .cardStyle()
     }
 
-    // MARK: - Weekday Performance
+    // MARK: - Profit Breakdown
 
-    private var weekdayPerformanceChart: some View {
-        let data = sessionStore.weekdayPerformance
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Avg Profit by Weekday")
-                .font(.headline)
+    private var profitBreakdownChart: some View {
+        let data = sessionStore.profitBreakdown(for: profitBreakdownDimension)
 
-            Chart {
-                ForEach(data, id: \.weekday) { point in
-                    BarMark(
-                        x: .value("Weekday", point.label),
-                        y: .value("Avg Profit", point.average)
-                    )
-                    .foregroundStyle(point.average >= 0 ? winColor : lossColor)
-                    .opacity(point.sessions > 0 ? 1 : 0.15)
-                }
-                RuleMark(y: .value("Zero", 0))
-                    .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
-                    .lineStyle(StrokeStyle(dash: [5, 5]))
-            }
-            .frame(height: 200)
-            .chartYAxis {
-                AxisMarks(position: .leading) { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let v = value.as(Double.self) {
-                            Text(shortCurrency(v))
-                                .font(.caption2)
-                        }
-                    }
-                }
-            }
-        }
-        .padding()
-        .cardStyle()
-    }
-    
-    // MARK: - Variant Breakdown
-    
-    private var variantBreakdown: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("By Variant")
-                .font(.headline)
-            
-            let maxProfit = sessionStore.sessionsByVariant.map { abs($0.2) }.max() ?? 1
-            
-            ForEach(sessionStore.sessionsByVariant, id: \.0) { variant, count, profit in
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(PokerSession.abbreviation(for: variant))
-                            .font(.subheadline)
-                        Spacer()
-                        Text(PokerSession.formatCurrency(profit, currency: currency))
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundStyle(profit >= 0 ? winColor : lossColor)
-                    }
-                    
-                    GeometryReader { geo in
-                        let barWidth = max(geo.size.width * CGFloat(abs(profit) / maxProfit), 4)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(profit >= 0 ? winColor.opacity(0.7) : lossColor.opacity(0.7))
-                            .frame(width: barWidth, height: 8)
-                    }
-                    .frame(height: 8)
-                    
-                    Text("\(count) sessions")
+                    Text("Profit Breakdown")
+                        .font(.headline)
+                    Text("By \(profitBreakdownDimension.rawValue)")
                         .font(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                 }
+
+                Spacer()
+
+                Picker("Profit Breakdown", selection: $profitBreakdownDimension) {
+                    ForEach(ProfitBreakdownDimension.allCases) { dimension in
+                        Text(dimension.rawValue).tag(dimension)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            if data.isEmpty {
+                Text("No \(profitBreakdownDimension.rawValue.lowercased()) data in this range yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Chart {
+                    RuleMark(x: .value("Zero", 0))
+                        .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
+                        .lineStyle(StrokeStyle(dash: [5, 5]))
+
+                    ForEach(data) { entry in
+                        BarMark(
+                            x: .value("Profit", entry.profit),
+                            y: .value("Category", entry.label)
+                        )
+                        .foregroundStyle(entry.profit >= 0 ? winColor : lossColor)
+                        .cornerRadius(5)
+                    }
+                }
+                .frame(height: profitBreakdownChartHeight(for: data.count))
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let amount = value.as(Double.self) {
+                                Text(shortCurrency(amount))
+                                    .font(.caption2)
+                            }
+                        }
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisValueLabel {
+                            if let label = value.as(String.self) {
+                                Text(label)
+                                    .font(.caption2)
+                            }
+                        }
+                    }
+                }
+
+                Text("\(data.count) categories • \(data.reduce(0) { $0 + $1.sessions }) sessions")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
             }
         }
         .padding()
@@ -504,17 +533,17 @@ struct AnalyticsView: View {
             }
             if sessionStore.totalHoursPlayed > 0 {
                 detailRow("Total Hours", String(format: "%.1f", sessionStore.totalHoursPlayed), .primary)
-                Divider()
-                if let rate = sessionStore.hourlyRate {
-                    detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: currency) + "/hr", rate >= 0 ? winColor : lossColor)
+                if settingsStore.settings.showHourlyRate, let rate = sessionStore.hourlyRate {
                     Divider()
+                    detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: currency) + "/hr", rate >= 0 ? winColor : lossColor)
                 }
+                Divider()
             }
             if sessionStore.longestWinStreak > 0 {
                 detailRow("Best Streak", "\(sessionStore.longestWinStreak) wins", winColor)
                 Divider()
             }
-            detailRow("Current Streak", sessionStore.currentWinStreak > 0 ? "\(sessionStore.currentWinStreak)W" : "\(sessionStore.currentLossStreak)L", sessionStore.currentWinStreak > 0 ? winColor : lossColor)
+            detailRow("Current Streak", currentStreakDisplay.value, currentStreakDisplay.color)
         }
         .padding()
         .cardStyle()
@@ -533,10 +562,12 @@ struct AnalyticsView: View {
     }
     
     private func shortCurrency(_ value: Double) -> String {
-        if abs(value) >= 1000 {
-            return String(format: "$%.0fk", value / 1000)
-        }
-        return String(format: "$%.0f", value)
+        let prefix = value < 0 ? "-" : ""
+        return prefix + PokerSession.formatCompactCurrency(abs(value), currency: currency)
+    }
+
+    private func profitBreakdownChartHeight(for count: Int) -> CGFloat {
+        CGFloat(max(count, 3)) * 34
     }
 }
 
@@ -626,9 +657,11 @@ struct StatsDateRangeSheet: View {
     }
 }
 
-#Preview {
-    AnalyticsView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
-        .environmentObject(SubscriptionStore.shared)
+private struct AnalyticsView_Previews: PreviewProvider {
+    static var previews: some View {
+        AnalyticsView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+            .environmentObject(SubscriptionStore.shared)
+    }
 }

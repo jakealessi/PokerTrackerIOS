@@ -46,16 +46,47 @@ struct ParsedSession {
             tags: tags
         )
     }
+
+    func withDate(_ value: Date?) -> ParsedSession {
+        ParsedSession(
+            amount: amount,
+            hoursPlayed: hoursPlayed,
+            stakes: stakes,
+            venue: venue,
+            gameType: gameType,
+            variant: variant,
+            notes: notes,
+            buyIn: buyIn,
+            cashOut: cashOut,
+            date: value,
+            tournamentPosition: tournamentPosition,
+            rebuys: rebuys,
+            handNotes: handNotes,
+            tags: tags
+        )
+    }
 }
 
 struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: Role
     let text: String
+    var card: Card? = nil
     
     enum Role: Equatable {
         case user
         case assistant
+    }
+
+    enum Card: Equatable {
+        case session(SessionCard)
+    }
+
+    struct SessionCard: Equatable {
+        let sessionID: UUID
+        let headline: String
+        let detail: String?
+        let systemImage: String
     }
 }
 
@@ -118,26 +149,27 @@ class AISessionService: ObservableObject {
         guard let lastUserMsg = messages.last(where: { $0.role == .user }) else {
             throw AISessionError.invalidResponse
         }
-        let current = [lastUserMsg]
+        let referenceDate = Date()
+        let recentMessages = Array(messages.suffix(8))
         do {
             let result: ConversationResult
             if let key = geminiKey, !key.isEmpty {
-                result = try await converseWithGemini(messages: current, apiKey: key, existingSessions: existingSessions)
-                return Self.inferMissingHours(in: result, from: lastUserMsg.text)
+                result = try await converseWithGemini(messages: recentMessages, apiKey: key, existingSessions: existingSessions, referenceDate: referenceDate)
+                return Self.normalize(result: result, from: lastUserMsg.text, relativeTo: referenceDate)
             }
             if let key = openAIKey, !key.isEmpty {
-                result = try await converseWithOpenAI(messages: current, apiKey: key, existingSessions: existingSessions)
-                return Self.inferMissingHours(in: result, from: lastUserMsg.text)
+                result = try await converseWithOpenAI(messages: recentMessages, apiKey: key, existingSessions: existingSessions, referenceDate: referenceDate)
+                return Self.normalize(result: result, from: lastUserMsg.text, relativeTo: referenceDate)
             }
             result = try await converseViaWorker(
-                messages: current,
+                messages: recentMessages,
                 conversationId: conversationId,
                 workerBaseURL: workerBaseURL,
                 existingSessions: existingSessions
             )
-            return Self.inferMissingHours(in: result, from: lastUserMsg.text)
+            return Self.normalize(result: result, from: lastUserMsg.text, relativeTo: referenceDate)
         } catch {
-            if let offline = SessionParserService.parse(lastUserMsg.text) {
+            if let offline = SessionParserService.parse(lastUserMsg.text, relativeTo: referenceDate) {
                 guard Self.isLoggable(offline) else {
                     return .followUp(Self.minimumInfoFollowUp)
                 }
@@ -149,10 +181,9 @@ class AISessionService: ObservableObject {
     
     // MARK: - System Prompt
     
-    private func buildSystemPrompt(existingSessions: String) -> String {
-        let now = Date()
-        let todayISO = ISO8601DateFormatter().string(from: now)
-        let dayName = formatDayName(now)
+    private func buildSystemPrompt(existingSessions: String, referenceDate: Date) -> String {
+        let todayISO = ISO8601DateFormatter().string(from: referenceDate)
+        let dayName = formatDayName(referenceDate)
         let dateContext = "Today is \(dayName). The current date in ISO 8601 is: \(todayISO). Use this as the ONLY reference when interpreting relative dates."
 
         let tagList = SessionTag.allCases.map { $0.rawValue }.joined(separator: ", ")
@@ -246,13 +277,13 @@ class AISessionService: ObservableObject {
         messageLength > messageLengthThreshold ? geminiModelAdvanced : geminiModelBasic
     }
     
-    private func converseWithGemini(messages: [ChatMessage], apiKey: String, existingSessions: String) async throws -> ConversationResult {
+    private func converseWithGemini(messages: [ChatMessage], apiKey: String, existingSessions: String, referenceDate: Date) async throws -> ConversationResult {
         let userMsg = messages.last(where: { $0.role == .user })?.text ?? ""
         let model = Self.pickGeminiModel(for: userMsg.count)
-        return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: model)
+        return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: model, referenceDate: referenceDate)
     }
 
-    private func performGeminiCall(messages: [ChatMessage], apiKey: String, existingSessions: String, model: String) async throws -> ConversationResult {
+    private func performGeminiCall(messages: [ChatMessage], apiKey: String, existingSessions: String, model: String, referenceDate: Date) async throws -> ConversationResult {
         var contents: [[String: Any]] = []
         for msg in messages {
             let role = msg.role == .user ? "user" : "model"
@@ -264,7 +295,7 @@ class AISessionService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "systemInstruction": ["parts": [["text": buildSystemPrompt(existingSessions: existingSessions)]]],
+            "systemInstruction": ["parts": [["text": buildSystemPrompt(existingSessions: existingSessions, referenceDate: referenceDate)]]],
             "contents": contents,
             "generationConfig": [
                 "temperature": 0.2,
@@ -276,7 +307,7 @@ class AISessionService: ObservableObject {
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
 
         if httpStatus == 429, model == Self.geminiModelAdvanced {
-            return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic)
+            return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic, referenceDate: referenceDate)
         }
 
         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -284,7 +315,7 @@ class AISessionService: ObservableObject {
            let message = error["message"] as? String {
             let isRateLimit = httpStatus == 429 || message.lowercased().contains("quota") || message.lowercased().contains("resource exhausted")
             if isRateLimit, model == Self.geminiModelAdvanced {
-                return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic)
+                return try await performGeminiCall(messages: messages, apiKey: apiKey, existingSessions: existingSessions, model: Self.geminiModelBasic, referenceDate: referenceDate)
             }
             throw AISessionError.networkError(NSError(domain: "Gemini", code: -1, userInfo: [NSLocalizedDescriptionKey: message]))
         }
@@ -312,9 +343,9 @@ class AISessionService: ObservableObject {
     
     // MARK: - Direct OpenAI Conversation
     
-    private func converseWithOpenAI(messages: [ChatMessage], apiKey: String, existingSessions: String) async throws -> ConversationResult {
+    private func converseWithOpenAI(messages: [ChatMessage], apiKey: String, existingSessions: String, referenceDate: Date) async throws -> ConversationResult {
         var oaiMessages: [[String: String]] = [
-            ["role": "system", "content": buildSystemPrompt(existingSessions: existingSessions)]
+            ["role": "system", "content": buildSystemPrompt(existingSessions: existingSessions, referenceDate: referenceDate)]
         ]
         for msg in messages {
             let role = msg.role == .user ? "user" : "assistant"
@@ -428,34 +459,20 @@ class AISessionService: ObservableObject {
         }
         
         let hoursPlayed = Self.parseDoubleValue(parsed["hoursPlayed"])
-        let stakes = parsed["stakes"] as? String
+        let stakes = Self.normalizedText(parsed["stakes"] as? String)
         let venue = VenueCleaner.clean(parsed["venue"] as? String)
-        let notes = parsed["notes"] as? String
-        let variant = parsed["variant"] as? String
+        let notes = Self.normalizedText(parsed["notes"] as? String)
+        let variant = Self.normalizedText(parsed["variant"] as? String)
         let formatRaw = parsed["gameFormat"] as? String ?? parsed["gameType"] as? String ?? "Cash Game"
         let gameType = GameType(rawValue: formatRaw) ?? .cash
         let buyIn = Self.parseDoubleValue(parsed["buyIn"])
         let cashOut = Self.parseDoubleValue(parsed["cashOut"])
         let tournamentPosition = Self.parseIntValue(parsed["tournamentPosition"])
         let rebuys = Self.parseIntValue(parsed["rebuys"])
-        let handNotes = parsed["handNotes"] as? String
-        let tags = (parsed["tags"] as? [String]) ?? []
+        let handNotes = Self.normalizedText(parsed["handNotes"] as? String)
+        let tags = Self.normalizedTags(from: parsed["tags"])
         
-        var date: Date?
-        if let dateStr = parsed["date"] as? String {
-            let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            date = fmt.date(from: dateStr)
-            if date == nil {
-                let fmt2 = ISO8601DateFormatter()
-                date = fmt2.date(from: dateStr)
-            }
-            if date == nil {
-                let df = DateFormatter()
-                df.dateFormat = "yyyy-MM-dd"
-                date = df.date(from: dateStr)
-            }
-        }
+        let date = (parsed["date"] as? String).flatMap { Self.parseDateString($0) }
         
         let session = ParsedSession(
             amount: amount,
@@ -519,34 +536,20 @@ class AISessionService: ObservableObject {
         }
         
         let hoursPlayed = parseDoubleValue(d["hoursPlayed"])
-        let stakes = d["stakes"] as? String
+        let stakes = normalizedText(d["stakes"] as? String)
         let venue = VenueCleaner.clean(d["venue"] as? String)
-        let notes = d["notes"] as? String
-        let variant = d["variant"] as? String
+        let notes = normalizedText(d["notes"] as? String)
+        let variant = normalizedText(d["variant"] as? String)
         let formatRaw = d["gameFormat"] as? String ?? d["gameType"] as? String ?? "Cash Game"
         let gameType = GameType(rawValue: formatRaw) ?? .cash
         let buyIn = parseDoubleValue(d["buyIn"])
         let cashOut = parseDoubleValue(d["cashOut"])
         let tournamentPosition = parseIntValue(d["tournamentPosition"])
         let rebuys = parseIntValue(d["rebuys"])
-        let handNotes = d["handNotes"] as? String
-        let tags = (d["tags"] as? [String]) ?? []
+        let handNotes = normalizedText(d["handNotes"] as? String)
+        let tags = normalizedTags(from: d["tags"])
         
-        var date: Date?
-        if let dateStr = d["date"] as? String {
-            let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            date = fmt.date(from: dateStr)
-            if date == nil {
-                let fmt2 = ISO8601DateFormatter()
-                date = fmt2.date(from: dateStr)
-            }
-            if date == nil {
-                let df = DateFormatter()
-                df.dateFormat = "yyyy-MM-dd"
-                date = df.date(from: dateStr)
-            }
-        }
+        let date = (d["date"] as? String).flatMap { parseDateString($0) }
         
         return ParsedSession(
             amount: amount,
@@ -594,6 +597,21 @@ class AISessionService: ObservableObject {
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private static func normalize(result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
+        let recovered = recoverDateOnlyFollowUp(in: result, from: message, relativeTo: referenceDate)
+        let withHours = inferMissingHours(in: recovered, from: message)
+        return inferMissingDate(in: withHours, from: message, relativeTo: referenceDate)
+    }
+
+    private static func recoverDateOnlyFollowUp(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
+        guard case .followUp(let text) = result,
+              let recoveredDate = parseDateString(text),
+              let offlineSession = SessionParserService.parse(message, relativeTo: referenceDate) else {
+            return result
+        }
+        return .complete(offlineSession.withDate(recoveredDate))
+    }
+
     private static func inferMissingHours(in result: ConversationResult, from message: String) -> ConversationResult {
         guard let inferredHours = SessionParserService.parseHoursValue(from: message) else { return result }
         switch result {
@@ -610,6 +628,50 @@ class AISessionService: ObservableObject {
         case .followUp:
             return result
         }
+    }
+
+    private static func inferMissingDate(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
+        guard let inferredDate = SessionParserService.parseDateValue(from: message, relativeTo: referenceDate) else { return result }
+        switch result {
+        case .complete(let session):
+            guard session.date == nil else { return result }
+            return .complete(session.withDate(inferredDate))
+        case .completeOffline(let session):
+            guard session.date == nil else { return result }
+            return .completeOffline(session.withDate(inferredDate))
+        case .update(let sessionNumber, var fields):
+            guard fields["date"] == nil else { return result }
+            fields["date"] = formatDateString(inferredDate)
+            return .update(sessionNumber: sessionNumber, fields: fields)
+        case .followUp:
+            return result
+        }
+    }
+
+    private static func parseDateString(_ dateStr: String) -> Date? {
+        let trimmed = dateStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let formatterWithFractionalSeconds = ISO8601DateFormatter()
+        formatterWithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatterWithFractionalSeconds.date(from: trimmed) {
+            return date
+        }
+
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: trimmed) {
+            return date
+        }
+
+        let dateOnlyFormatter = DateFormatter()
+        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
+        return dateOnlyFormatter.date(from: trimmed)
+    }
+
+    private static func formatDateString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     static func parseDoubleValue(_ value: Any?) -> Double? {
@@ -656,7 +718,7 @@ class AISessionService: ObservableObject {
     static func buildSessionContext(from sessions: [PokerSession], currency: String = "USD") -> String {
         guard !sessions.isEmpty else { return "" }
         let sorted = sessions.sorted { $0.date < $1.date }
-        let lines = sorted.prefix(50).enumerated().map { index, s -> String in
+        let lines = sorted.enumerated().map { index, s -> String in
             let num = index + 1
             let df = DateFormatter()
             df.dateFormat = "M/d/yy"
@@ -675,28 +737,54 @@ class AISessionService: ObservableObject {
     /// Applies update fields to an existing session
     static func applyUpdate(to session: PokerSession, fields: [String: Any]) -> PokerSession {
         var s = session
+        if fieldIsNull(fields["hoursPlayed"]) { s.hoursPlayed = nil }
         if let amount = parseDoubleValue(fields["amount"]) { s.amount = amount }
         if let hours = parseDoubleValue(fields["hoursPlayed"]) { s.hoursPlayed = hours }
-        if let stakes = fields["stakes"] as? String { s.stakes = stakes }
+        if fieldIsNull(fields["stakes"]) { s.stakes = nil }
+        if let stakes = fields["stakes"] as? String { s.stakes = normalizedText(stakes) }
+        if fieldIsNull(fields["venue"]) { s.venue = nil }
         if let raw = fields["venue"] as? String { s.venue = VenueCleaner.clean(raw) }
-        if let notes = fields["notes"] as? String { s.notes = notes }
-        if let variant = fields["variant"] as? String { s.variant = variant }
+        if fieldIsNull(fields["notes"]) { s.notes = "" }
+        if let notes = fields["notes"] as? String { s.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if fieldIsNull(fields["variant"]) { s.variant = nil }
+        if let variant = fields["variant"] as? String { s.variant = normalizedText(variant) }
+        if fieldIsNull(fields["buyIn"]) { s.buyIn = nil }
         if let buyIn = parseDoubleValue(fields["buyIn"]) { s.buyIn = buyIn }
+        if fieldIsNull(fields["cashOut"]) { s.cashOut = nil }
         if let cashOut = parseDoubleValue(fields["cashOut"]) { s.cashOut = cashOut }
+        if fieldIsNull(fields["tournamentPosition"]) { s.tournamentPosition = nil }
         if let pos = parseIntValue(fields["tournamentPosition"]) { s.tournamentPosition = pos }
+        if fieldIsNull(fields["rebuys"]) { s.rebuys = nil }
         if let rebuys = parseIntValue(fields["rebuys"]) { s.rebuys = rebuys }
-        if let handNotes = fields["handNotes"] as? String { s.handNotes = handNotes }
-        if let formatRaw = fields["gameFormat"] as? String,
+        if fieldIsNull(fields["handNotes"]) { s.handNotes = nil }
+        if let handNotes = fields["handNotes"] as? String { s.handNotes = normalizedText(handNotes) }
+        if fieldIsNull(fields["tags"]) { s.tags = [] }
+        if fields["tags"] is [String] {
+            s.tags = normalizedTags(from: fields["tags"])
+        }
+        if let formatRaw = (fields["gameFormat"] as? String) ?? (fields["gameType"] as? String),
            let gameType = GameType(rawValue: formatRaw) { s.gameType = gameType }
         if let dateStr = fields["date"] as? String {
-            let fmt = ISO8601DateFormatter()
-            if let d = fmt.date(from: dateStr) { s.date = d }
-            else {
-                let df = DateFormatter()
-                df.dateFormat = "yyyy-MM-dd"
-                if let d = df.date(from: dateStr) { s.date = d }
-            }
+            if let d = parseDateString(dateStr) { s.date = d }
         }
         return s
+    }
+
+    private static func fieldIsNull(_ value: Any?) -> Bool {
+        value is NSNull
+    }
+
+    private static func normalizedText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedTags(from value: Any?) -> [String] {
+        guard let tags = value as? [String] else { return [] }
+        return tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
     }
 }

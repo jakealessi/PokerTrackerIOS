@@ -139,7 +139,9 @@ struct SubscriptionPaywallView: View {
     }
 }
 
-#Preview {
-    SubscriptionPaywallView()
-        .environmentObject(SubscriptionStore.shared)
+private struct SubscriptionPaywallView_Previews: PreviewProvider {
+    static var previews: some View {
+        SubscriptionPaywallView()
+            .environmentObject(SubscriptionStore.shared)
+    }
 }

@@ -15,8 +15,15 @@ struct CalendarView: View {
     @State private var didInitialCenter = false
     
     private let calendar = Calendar.current
-    private let weekdaySymbols = Calendar.current.shortWeekdaySymbols
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+    private var weekdaySymbols: [String] {
+        let baseSymbols = calendar.shortWeekdaySymbols
+        return (0..<7).map { offset in
+            let index = (calendar.firstWeekday - 1 + offset) % 7
+            return baseSymbols[index]
+        }
+    }
     
     /// Range of months: from first session's month through current month + 2
     private var monthRange: [Date] {
@@ -356,8 +363,10 @@ private struct DayCell: View {
     }
 }
 
-#Preview {
-    CalendarView()
-        .environmentObject(SessionStore())
-        .environmentObject(SettingsStore())
+private struct CalendarView_Previews: PreviewProvider {
+    static var previews: some View {
+        CalendarView()
+            .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
+    }
 }
