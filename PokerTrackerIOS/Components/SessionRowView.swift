@@ -20,7 +20,7 @@ struct SessionRowView: View {
     }
     
     private var gameInfoText: String {
-        var parts: [String] = [session.displayVariantAbbreviation, session.gameType.abbreviation]
+        var parts: [String] = [session.displayVariantAbbreviation, session.displayGameTypeAbbreviation]
         if let stakes = session.stakes, !stakes.isEmpty {
             parts.append(stakes)
         }
@@ -28,11 +28,12 @@ struct SessionRowView: View {
     }
 
     private var amountText: String {
+        let netAmount = session.netAmount
         if settingsStore.settings.useCompactCurrency {
-            let prefix = session.amount > 0 ? "+" : (session.amount < 0 ? "-" : "")
-            return prefix + PokerSession.formatCompactCurrency(abs(session.amount), currency: currency)
+            let prefix = netAmount > 0 ? "+" : (netAmount < 0 ? "-" : "")
+            return prefix + PokerSession.formatCompactCurrency(abs(netAmount), currency: currency)
         }
-        return PokerSession.formatCurrency(session.amount, currency: currency)
+        return PokerSession.formatCurrency(netAmount, currency: currency)
     }
     
     var body: some View {
@@ -89,6 +90,12 @@ struct SessionRowView: View {
                             .font(.caption2)
                     }
                     .foregroundStyle(.tertiary)
+                }
+
+                if session.hasExpenses {
+                    Text("Gross \(PokerSession.formatCurrency(session.amount, currency: currency)) • Expenses \(PokerSession.formatCurrency(session.totalExpenses, currency: currency))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
 
                 if !session.tags.isEmpty {

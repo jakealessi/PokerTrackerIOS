@@ -48,6 +48,11 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var hoursPlayed: Double?
     var stakes: String?
     var venue: String?
+    var rake: Double?
+    var tips: Double?
+    var food: Double?
+    var travel: Double?
+    var fees: Double?
     var buyIn: Double?
     var cashOut: Double?
     var tournamentPosition: Int?
@@ -70,6 +75,11 @@ struct PokerSession: Identifiable, Codable, Equatable {
         hoursPlayed: Double? = nil,
         stakes: String? = nil,
         venue: String? = nil,
+        rake: Double? = nil,
+        tips: Double? = nil,
+        food: Double? = nil,
+        travel: Double? = nil,
+        fees: Double? = nil,
         buyIn: Double? = nil,
         cashOut: Double? = nil,
         tournamentPosition: Int? = nil,
@@ -91,6 +101,11 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.hoursPlayed = hoursPlayed
         self.stakes = stakes
         self.venue = venue
+        self.rake = rake
+        self.tips = tips
+        self.food = food
+        self.travel = travel
+        self.fees = fees
         self.buyIn = buyIn
         self.cashOut = cashOut
         self.tournamentPosition = tournamentPosition
@@ -116,6 +131,11 @@ struct PokerSession: Identifiable, Codable, Equatable {
         hoursPlayed = try c.decodeIfPresent(Double.self, forKey: .hoursPlayed)
         stakes = try c.decodeIfPresent(String.self, forKey: .stakes)
         venue = try c.decodeIfPresent(String.self, forKey: .venue)
+        rake = try c.decodeIfPresent(Double.self, forKey: .rake)
+        tips = try c.decodeIfPresent(Double.self, forKey: .tips)
+        food = try c.decodeIfPresent(Double.self, forKey: .food)
+        travel = try c.decodeIfPresent(Double.self, forKey: .travel)
+        fees = try c.decodeIfPresent(Double.self, forKey: .fees)
         buyIn = try c.decodeIfPresent(Double.self, forKey: .buyIn)
         cashOut = try c.decodeIfPresent(Double.self, forKey: .cashOut)
         tournamentPosition = try c.decodeIfPresent(Int.self, forKey: .tournamentPosition)
@@ -128,24 +148,48 @@ struct PokerSession: Identifiable, Codable, Equatable {
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
     
-    var isWin: Bool { amount > 0 }
-    var isLoss: Bool { amount < 0 }
-    var isBreakEven: Bool { amount == 0 }
+    var totalExpenses: Double {
+        expenseEntries.reduce(0) { $0 + $1.amount }
+    }
+
+    var hasExpenses: Bool { totalExpenses > 0.0001 }
+
+    var netAmount: Double {
+        amount - totalExpenses
+    }
+
+    var expenseEntries: [(label: String, amount: Double)] {
+        [
+            ("Rake", rake),
+            ("Tips", tips),
+            ("Food", food),
+            ("Travel", travel),
+            ("Fees", fees)
+        ]
+        .compactMap { label, amount in
+            guard let amount, amount > 0 else { return nil }
+            return (label: label, amount: amount)
+        }
+    }
+
+    var isWin: Bool { netAmount > 0.0001 }
+    var isLoss: Bool { netAmount < -0.0001 }
+    var isBreakEven: Bool { abs(netAmount) <= 0.0001 }
     
     var hourlyRate: Double? {
         guard let hours = hoursPlayed, hours > 0 else { return nil }
-        return amount / hours
+        return netAmount / hours
     }
     
     var tournamentROI: Double? {
         guard gameType == .tournament || gameType == .sitAndGo,
               let buyIn = buyIn, buyIn > 0 else { return nil }
         let totalBuyIn = buyIn + Double(rebuys ?? 0) * buyIn
-        return totalBuyIn > 0 ? (amount / totalBuyIn) * 100 : nil
+        return totalBuyIn > 0 ? (netAmount / totalBuyIn) * 100 : nil
     }
     
     var formattedAmount: String {
-        Self.formatCurrency(amount)
+        Self.formatCurrency(netAmount)
     }
 
     static func calculatedHours(from startTime: Date?, to endTime: Date?) -> Double? {
@@ -166,6 +210,18 @@ struct PokerSession: Identifiable, Codable, Equatable {
     static func startTime(from endTime: Date?, hoursPlayed: Double?) -> Date? {
         guard let endTime, let hoursPlayed, hoursPlayed.isFinite, hoursPlayed > 0 else { return nil }
         return endTime.addingTimeInterval(-hoursPlayed * 3600)
+    }
+
+    var normalizedGameType: GameType {
+        gameType == .plo ? .cash : gameType
+    }
+
+    var displayGameType: String {
+        normalizedGameType.rawValue
+    }
+
+    var displayGameTypeAbbreviation: String {
+        normalizedGameType.abbreviation
     }
     
     /// Display string: variant if set, otherwise game format

@@ -62,6 +62,9 @@ final class SubscriptionStore: ObservableObject {
     }
 
     func purchase(_ product: Product) async throws -> Transaction? {
+        isLoading = true
+        defer { isLoading = false }
+
         let result = try await product.purchase()
         switch result {
         case .success(let verification):
@@ -134,21 +137,31 @@ final class SubscriptionStore: ObservableObject {
     /// Human-readable subscription summary (e.g. "$1.99/month, 1 month free")
     var subscriptionDisplayPrice: String? {
         guard let p = proMonthlyProduct else { return nil }
-        var text = p.displayPrice + "/month"
+        var text = recurringPriceDescription(for: p)
         if let intro = p.subscription?.introductoryOffer {
             switch intro.paymentMode {
             case .freeTrial:
-                let period = intro.period
-                if period.value == 1, period.unit == .month {
-                    text += ", 1 month free trial"
-                } else {
-                    text += ", free trial"
-                }
+                text += ", \(countedPeriodDescription(for: intro.period)) free trial"
             default:
                 break
             }
         }
         return text
+    }
+
+    func recurringPriceDescription(for product: Product) -> String {
+        guard let period = product.subscription?.subscriptionPeriod else {
+            return product.displayPrice
+        }
+        return "\(product.displayPrice)/\(periodDescription(for: period))"
+    }
+
+    func purchaseFooterText(for product: Product) -> String {
+        let recurringPrice = recurringPriceDescription(for: product)
+        if product.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+            return "Then \(recurringPrice). Cancel anytime."
+        }
+        return "\(recurringPrice). Cancel anytime."
     }
 
     /// Call from UI when purchase or other operations fail, or to clear the message.
@@ -158,6 +171,34 @@ final class SubscriptionStore: ObservableObject {
 
     private static func matchesProMonthlyProductID(_ productID: String) -> Bool {
         productID == proMonthlyProductID || productID.hasSuffix(".\(proMonthlyProductID)")
+    }
+
+    private func periodDescription(for period: Product.SubscriptionPeriod) -> String {
+        let unit: String
+        switch period.unit {
+        case .day:
+            unit = period.value == 1 ? "day" : "days"
+        case .week:
+            unit = period.value == 1 ? "week" : "weeks"
+        case .month:
+            unit = period.value == 1 ? "month" : "months"
+        case .year:
+            unit = period.value == 1 ? "year" : "years"
+        @unknown default:
+            unit = period.value == 1 ? "period" : "periods"
+        }
+
+        if period.value == 1 {
+            return unit
+        }
+        return "\(period.value) \(unit)"
+    }
+
+    private func countedPeriodDescription(for period: Product.SubscriptionPeriod) -> String {
+        if period.value == 1 {
+            return "1 \(periodDescription(for: period))"
+        }
+        return periodDescription(for: period)
     }
 }
 

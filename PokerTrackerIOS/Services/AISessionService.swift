@@ -17,6 +17,11 @@ struct ParsedSession {
     let hoursPlayed: Double?
     let stakes: String?
     let venue: String?
+    let rake: Double?
+    let tips: Double?
+    let food: Double?
+    let travel: Double?
+    let fees: Double?
     let gameType: GameType
     let variant: String?
     let notes: String?
@@ -34,6 +39,11 @@ struct ParsedSession {
             hoursPlayed: value,
             stakes: stakes,
             venue: venue,
+            rake: rake,
+            tips: tips,
+            food: food,
+            travel: travel,
+            fees: fees,
             gameType: gameType,
             variant: variant,
             notes: notes,
@@ -53,6 +63,11 @@ struct ParsedSession {
             hoursPlayed: hoursPlayed,
             stakes: stakes,
             venue: venue,
+            rake: rake,
+            tips: tips,
+            food: food,
+            travel: travel,
+            fees: fees,
             gameType: gameType,
             variant: variant,
             notes: notes,
@@ -61,6 +76,51 @@ struct ParsedSession {
             date: value,
             tournamentPosition: tournamentPosition,
             rebuys: rebuys,
+            handNotes: handNotes,
+            tags: tags
+        )
+    }
+
+    func mergingMissingFields(from signals: SessionParserService.ExtractedSessionSignals) -> ParsedSession {
+        let inferredGameType: GameType = {
+            guard let parsedType = signals.gameType else { return gameType }
+            if parsedType == .plo {
+                return .cash
+            }
+            if gameType == .cash && parsedType != .cash {
+                return parsedType
+            }
+            return gameType
+        }()
+
+        let inferredVariant: String? = {
+            if let variant {
+                return variant
+            }
+            if signals.gameType == .plo {
+                return signals.variant ?? PokerVariant.plo.rawValue
+            }
+            return signals.variant
+        }()
+
+        return ParsedSession(
+            amount: amount,
+            hoursPlayed: hoursPlayed ?? signals.hoursPlayed,
+            stakes: stakes ?? signals.stakes,
+            venue: venue ?? signals.venue,
+            rake: rake ?? signals.rake,
+            tips: tips ?? signals.tips,
+            food: food ?? signals.food,
+            travel: travel ?? signals.travel,
+            fees: fees ?? signals.fees,
+            gameType: inferredGameType,
+            variant: inferredVariant,
+            notes: notes,
+            buyIn: buyIn ?? signals.buyIn,
+            cashOut: cashOut ?? signals.cashOut,
+            date: date ?? signals.date,
+            tournamentPosition: tournamentPosition ?? signals.tournamentPosition,
+            rebuys: rebuys ?? signals.rebuys,
             handNotes: handNotes,
             tags: tags
         )
@@ -202,15 +262,28 @@ class AISessionService: ObservableObject {
         3. ASK FOR DETAILS - if user gives very minimal info, ask follow-up questions
 
         CRITICAL — AMOUNT EXTRACTION (READ CAREFULLY):
-        - "amount" is ALWAYS the user's FINAL NET profit or loss — the money they actually took home.
+        - "amount" is the poker RESULT before off-table expenses like rake, tips, food, travel, or fees.
         - LOOK FOR KEYWORDS: "made", "won", "up", "lost", "down" followed by a dollar figure. That figure is the amount.
         - IGNORE peak/high-water-mark numbers. Words like "was up", "originally up", "peaked at" describe mid-session swings, NOT the final result.
         - EXAMPLE: "made 600 bucks ... was originally up 1200 but punted" → amount is 600 (NOT 1200). The 1200 is a mid-session peak. The "made 600" is what they took home. Put "Was originally up 1200 but punted" into notes.
         - EXAMPLE: "won 300 but was up 800 at one point" → amount is 300 (NOT 800).
         - EXAMPLE: "lost 500, was stuck 1000 earlier but fought back" → amount is -500.
         - If user says "bought in for X, cashed out for Y", compute amount as Y - X.
+        - Treat compact amounts like "1k" = 1000 and "1.5k" = 1500.
+        - Phrases like "in for 300, out for 850" mean amount = 550.
         - Positive amount = win, negative = loss.
         - WHEN IN DOUBT: use the number attached to "made/won/lost/down/up" at the START of the message, not numbers mentioned as past peaks.
+
+        EXPENSES & FEES:
+        - Track these separately when the user explicitly mentions them: rake, tips, food, travel, fees.
+        - Always return expense values as POSITIVE numbers.
+        - Examples:
+          • "tipped 20" → tips = 20
+          • "paid 15 in rake" or "time charge was 15" → rake = 15
+          • "spent 12 on food" → food = 12
+          • "uber was 18" or "travel cost 18" → travel = 18
+          • "fees were 10" → fees = 10
+        - Do NOT subtract expenses from amount yourself. The app calculates net bankroll impact as amount minus expenses.
 
         NOTES & HAND NOTES:
         - Any extra context the user provides beyond the core session data (amount, stakes, hours, venue, variant) should go into "notes".
@@ -244,14 +317,15 @@ class AISessionService: ObservableObject {
         - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
         - If the user provides start/end times (e.g. "started at 7, ended at 11"), compute and return hoursPlayed from that range.
         - When you have enough info, respond with ONLY a JSON object:
-          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
+          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "rake": number|null, "tips": number|null, "food": number|null, "travel": number|null, "fees": number|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
         - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
+        - Relative phrases like "last night", "Friday night", or "this morning" should also be resolved relative to TODAY above.
         - Default variant to "No Limit Hold'em" and format to "Cash Game" if not mentioned.
 
         RULES FOR UPDATES:
         - If the user says something like "update session 3" or "change session #5 stakes to 2/5", respond with:
           {"action": "update", "sessionNumber": number, "fields": {"fieldName": newValue, ...}}
-        - Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
+        - Valid field names: amount, hoursPlayed, stakes, venue, rake, tips, food, travel, fees, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
         - If the user wants to update but doesn't specify which session, ask them which session number.
 
         GENERAL RULES:
@@ -290,7 +364,14 @@ class AISessionService: ObservableObject {
             contents.append(["role": role, "parts": [["text": msg.text]]])
         }
 
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)")!
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "generativelanguage.googleapis.com"
+        components.path = "/v1beta/models/\(model):generateContent"
+        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        guard let url = components.url else {
+            throw AISessionError.serviceUnavailable("Invalid Gemini URL")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -359,7 +440,10 @@ class AISessionService: ObservableObject {
             "max_tokens": 500
         ]
         
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            throw AISessionError.serviceUnavailable("Invalid OpenAI URL")
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -446,7 +530,9 @@ class AISessionService: ObservableObject {
             return .followUp(text)
         }
         
-        let action = parsed["action"] as? String ?? "create"
+        let action = (parsed["action"] as? String ?? "create")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         
         if action == "update",
            let sessionNumber = Self.parseIntValue(parsed["sessionNumber"]),
@@ -458,13 +544,17 @@ class AISessionService: ObservableObject {
             return .followUp(text)
         }
         
-        let hoursPlayed = Self.parseDoubleValue(parsed["hoursPlayed"])
+        let hoursPlayed = Self.parseHoursFieldValue(parsed["hoursPlayed"])
         let stakes = Self.normalizedText(parsed["stakes"] as? String)
         let venue = VenueCleaner.clean(parsed["venue"] as? String)
+        let rake = Self.parsePositiveDoubleValue(parsed["rake"])
+        let tips = Self.parsePositiveDoubleValue(parsed["tips"])
+        let food = Self.parsePositiveDoubleValue(parsed["food"])
+        let travel = Self.parsePositiveDoubleValue(parsed["travel"])
+        let fees = Self.parsePositiveDoubleValue(parsed["fees"])
         let notes = Self.normalizedText(parsed["notes"] as? String)
-        let variant = Self.normalizedText(parsed["variant"] as? String)
         let formatRaw = parsed["gameFormat"] as? String ?? parsed["gameType"] as? String ?? "Cash Game"
-        let gameType = GameType(rawValue: formatRaw) ?? .cash
+        let gameDetails = Self.resolvedGameDetails(formatValue: formatRaw, variantValue: parsed["variant"] as? String)
         let buyIn = Self.parseDoubleValue(parsed["buyIn"])
         let cashOut = Self.parseDoubleValue(parsed["cashOut"])
         let tournamentPosition = Self.parseIntValue(parsed["tournamentPosition"])
@@ -479,8 +569,13 @@ class AISessionService: ObservableObject {
             hoursPlayed: hoursPlayed,
             stakes: stakes,
             venue: venue,
-            gameType: gameType,
-            variant: variant,
+            rake: rake,
+            tips: tips,
+            food: food,
+            travel: travel,
+            fees: fees,
+            gameType: gameDetails.gameType,
+            variant: gameDetails.variant,
             notes: notes,
             buyIn: buyIn,
             cashOut: cashOut,
@@ -535,13 +630,17 @@ class AISessionService: ObservableObject {
             throw AISessionError.invalidResponse
         }
         
-        let hoursPlayed = parseDoubleValue(d["hoursPlayed"])
+        let hoursPlayed = parseHoursFieldValue(d["hoursPlayed"])
         let stakes = normalizedText(d["stakes"] as? String)
         let venue = VenueCleaner.clean(d["venue"] as? String)
+        let rake = parsePositiveDoubleValue(d["rake"])
+        let tips = parsePositiveDoubleValue(d["tips"])
+        let food = parsePositiveDoubleValue(d["food"])
+        let travel = parsePositiveDoubleValue(d["travel"])
+        let fees = parsePositiveDoubleValue(d["fees"])
         let notes = normalizedText(d["notes"] as? String)
-        let variant = normalizedText(d["variant"] as? String)
         let formatRaw = d["gameFormat"] as? String ?? d["gameType"] as? String ?? "Cash Game"
-        let gameType = GameType(rawValue: formatRaw) ?? .cash
+        let gameDetails = resolvedGameDetails(formatValue: formatRaw, variantValue: d["variant"] as? String)
         let buyIn = parseDoubleValue(d["buyIn"])
         let cashOut = parseDoubleValue(d["cashOut"])
         let tournamentPosition = parseIntValue(d["tournamentPosition"])
@@ -556,8 +655,13 @@ class AISessionService: ObservableObject {
             hoursPlayed: hoursPlayed,
             stakes: stakes,
             venue: venue,
-            gameType: gameType,
-            variant: variant,
+            rake: rake,
+            tips: tips,
+            food: food,
+            travel: travel,
+            fees: fees,
+            gameType: gameDetails.gameType,
+            variant: gameDetails.variant,
             notes: notes,
             buyIn: buyIn,
             cashOut: cashOut,
@@ -579,12 +683,19 @@ class AISessionService: ObservableObject {
             hasText(session.venue) ||
             hasText(session.notes) ||
             hasText(session.variant) ||
+            session.gameType != .cash ||
+            session.rake != nil ||
+            session.tips != nil ||
+            session.food != nil ||
+            session.travel != nil ||
+            session.fees != nil ||
             session.buyIn != nil ||
             session.cashOut != nil ||
             session.date != nil ||
             session.tournamentPosition != nil ||
             session.rebuys != nil ||
-            hasText(session.handNotes)
+            hasText(session.handNotes) ||
+            !session.tags.isEmpty
         return hasSupportingDetail
     }
 
@@ -598,9 +709,9 @@ class AISessionService: ObservableObject {
     }
 
     private static func normalize(result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
-        let recovered = recoverDateOnlyFollowUp(in: result, from: message, relativeTo: referenceDate)
-        let withHours = inferMissingHours(in: recovered, from: message)
-        return inferMissingDate(in: withHours, from: message, relativeTo: referenceDate)
+        let recoveredDate = recoverDateOnlyFollowUp(in: result, from: message, relativeTo: referenceDate)
+        let recoveredOffline = recoverOfflineCompletion(in: recoveredDate, from: message, relativeTo: referenceDate)
+        return mergeMissingFields(in: recoveredOffline, from: message, relativeTo: referenceDate)
     }
 
     private static func recoverDateOnlyFollowUp(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
@@ -612,36 +723,71 @@ class AISessionService: ObservableObject {
         return .complete(offlineSession.withDate(recoveredDate))
     }
 
-    private static func inferMissingHours(in result: ConversationResult, from message: String) -> ConversationResult {
-        guard let inferredHours = SessionParserService.parseHoursValue(from: message) else { return result }
-        switch result {
-        case .complete(let session):
-            guard session.hoursPlayed == nil else { return result }
-            return .complete(session.withHoursPlayed(inferredHours))
-        case .completeOffline(let session):
-            guard session.hoursPlayed == nil else { return result }
-            return .completeOffline(session.withHoursPlayed(inferredHours))
-        case .update(let sessionNumber, var fields):
-            guard parseDoubleValue(fields["hoursPlayed"]) == nil else { return result }
-            fields["hoursPlayed"] = inferredHours
-            return .update(sessionNumber: sessionNumber, fields: fields)
-        case .followUp:
+    private static func recoverOfflineCompletion(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
+        guard case .followUp = result,
+              let offline = SessionParserService.parse(message, relativeTo: referenceDate),
+              isLoggable(offline) else {
             return result
         }
+        return .completeOffline(offline)
     }
 
-    private static func inferMissingDate(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
-        guard let inferredDate = SessionParserService.parseDateValue(from: message, relativeTo: referenceDate) else { return result }
+    private static func mergeMissingFields(in result: ConversationResult, from message: String, relativeTo referenceDate: Date) -> ConversationResult {
+        guard let signals = SessionParserService.extractSignals(from: message, relativeTo: referenceDate) else {
+            return result
+        }
+
         switch result {
         case .complete(let session):
-            guard session.date == nil else { return result }
-            return .complete(session.withDate(inferredDate))
+            return .complete(session.mergingMissingFields(from: signals))
         case .completeOffline(let session):
-            guard session.date == nil else { return result }
-            return .completeOffline(session.withDate(inferredDate))
+            return .completeOffline(session.mergingMissingFields(from: signals))
         case .update(let sessionNumber, var fields):
-            guard fields["date"] == nil else { return result }
-            fields["date"] = formatDateString(inferredDate)
+            if fields["hoursPlayed"] == nil, let hours = signals.hoursPlayed {
+                fields["hoursPlayed"] = hours
+            }
+            if fields["stakes"] == nil, let stakes = signals.stakes {
+                fields["stakes"] = stakes
+            }
+            if fields["venue"] == nil, let venue = signals.venue {
+                fields["venue"] = venue
+            }
+            if fields["rake"] == nil, let rake = signals.rake {
+                fields["rake"] = rake
+            }
+            if fields["tips"] == nil, let tips = signals.tips {
+                fields["tips"] = tips
+            }
+            if fields["food"] == nil, let food = signals.food {
+                fields["food"] = food
+            }
+            if fields["travel"] == nil, let travel = signals.travel {
+                fields["travel"] = travel
+            }
+            if fields["fees"] == nil, let fees = signals.fees {
+                fields["fees"] = fees
+            }
+            if fields["variant"] == nil, let variant = signals.variant {
+                fields["variant"] = variant
+            }
+            if fields["buyIn"] == nil, let buyIn = signals.buyIn {
+                fields["buyIn"] = buyIn
+            }
+            if fields["cashOut"] == nil, let cashOut = signals.cashOut {
+                fields["cashOut"] = cashOut
+            }
+            if fields["tournamentPosition"] == nil, let position = signals.tournamentPosition {
+                fields["tournamentPosition"] = position
+            }
+            if fields["rebuys"] == nil, let rebuys = signals.rebuys {
+                fields["rebuys"] = rebuys
+            }
+            if fields["date"] == nil, let date = signals.date {
+                fields["date"] = formatDateString(date)
+            }
+            if fields["gameFormat"] == nil, fields["gameType"] == nil, let gameType = signals.gameType {
+                fields["gameFormat"] = gameType.rawValue
+            }
             return .update(sessionNumber: sessionNumber, fields: fields)
         case .followUp:
             return result
@@ -663,9 +809,27 @@ class AISessionService: ObservableObject {
             return date
         }
 
-        let dateOnlyFormatter = DateFormatter()
-        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
-        return dateOnlyFormatter.date(from: trimmed)
+        let formats = [
+            "yyyy-MM-dd",
+            "M/d/yyyy",
+            "M/d/yy",
+            "MMM d, yyyy",
+            "MMMM d, yyyy",
+            "MMM d yyyy",
+            "MMMM d yyyy"
+        ]
+
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone.current
+        for format in formats {
+            parser.dateFormat = format
+            if let date = parser.date(from: trimmed) {
+                return date
+            }
+        }
+
+        return SessionParserService.parseDateValue(from: trimmed)
     }
 
     private static func formatDateString(_ date: Date) -> String {
@@ -683,14 +847,28 @@ class AISessionService: ObservableObject {
         case let n as NSNumber:
             return n.doubleValue
         case let s as String:
-            let cleaned = s
-                .replacingOccurrences(of: "$", with: "")
-                .replacingOccurrences(of: ",", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return Double(cleaned)
+            return SessionParserService.parseNumericValue(from: s)
         default:
             return nil
         }
+    }
+
+    private static func parseHoursFieldValue(_ value: Any?) -> Double? {
+        if let stringValue = value as? String {
+            let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            if let duration = SessionParserService.parseHoursValue(from: trimmed) {
+                return duration
+            }
+            return SessionParserService.parseNumericValue(from: trimmed)
+        }
+        return parseDoubleValue(value)
+    }
+
+    static func parsePositiveDoubleValue(_ value: Any?) -> Double? {
+        guard let value = parseDoubleValue(value) else { return nil }
+        let normalized = abs(value)
+        return normalized > 0.0001 ? normalized : nil
     }
 
     static func parseIntValue(_ value: Any?) -> Int? {
@@ -702,10 +880,77 @@ class AISessionService: ObservableObject {
         case let n as NSNumber:
             return n.intValue
         case let s as String:
-            return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let ordinal = SessionParserService.parseOrdinalValue(from: s) {
+                return ordinal
+            }
+            return SessionParserService.parseNumericValue(from: s).map(Int.init)
         default:
             return nil
         }
+    }
+
+    private static func normalizedGameType(from value: Any?) -> GameType? {
+        guard let rawValue = value as? String else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let exact = GameType.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact == .plo ? .cash : exact
+        }
+        if let parsed = SessionParserService.parseGameTypeValue(from: trimmed) {
+            return parsed == .plo ? .cash : parsed
+        }
+
+        switch comparableToken(for: trimmed) {
+        case "cash", "cashgame", "ringgame":
+            return .cash
+        case "plo":
+            return .cash
+        case "tournament", "mtt":
+            return .tournament
+        case "sitgo", "sitandgo", "sitngo", "sng", "spingo", "spinandgo":
+            return .sitAndGo
+        case "homegame":
+            return .homeGame
+        case "online":
+            return .online
+        default:
+            return nil
+        }
+    }
+
+    private static func resolvedGameDetails(formatValue: Any?, variantValue: String?) -> (gameType: GameType, variant: String?) {
+        let resolvedVariant = normalizedVariant(variantValue)
+        let gameType = normalizedGameType(from: formatValue) ?? .cash
+        guard isLegacyPLOGameType(formatValue) else {
+            return (gameType, resolvedVariant)
+        }
+        return (.cash, resolvedVariant ?? PokerVariant.plo.rawValue)
+    }
+
+    private static func isLegacyPLOGameType(_ value: Any?) -> Bool {
+        guard let rawValue = value as? String else { return false }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if let exact = GameType.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact == .plo
+        }
+        if let parsed = SessionParserService.parseGameTypeValue(from: trimmed) {
+            return parsed == .plo
+        }
+        return comparableToken(for: trimmed) == "plo"
+    }
+
+    private static func normalizedVariant(_ value: String?) -> String? {
+        guard let trimmed = normalizedText(value) else { return nil }
+        if let exact = PokerVariant.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact.rawValue
+        }
+        if let parsed = SessionParserService.parseVariantValue(from: trimmed) {
+            return parsed
+        }
+        return trimmed
     }
     
     private func formatDayName(_ date: Date) -> String {
@@ -723,8 +968,11 @@ class AISessionService: ObservableObject {
             let df = DateFormatter()
             df.dateFormat = "M/d/yy"
             let dateStr = df.string(from: s.date)
-            let amountStr = PokerSession.formatCurrency(s.amount, currency: currency)
-            var detail = "#\(num): \(amountStr) on \(dateStr)"
+            let netAmountStr = PokerSession.formatCurrency(s.netAmount, currency: currency)
+            var detail = "#\(num): net \(netAmountStr) on \(dateStr)"
+            if s.hasExpenses {
+                detail += " (gross \(PokerSession.formatCurrency(s.amount, currency: currency)), expenses \(PokerSession.formatCurrency(s.totalExpenses, currency: currency)))"
+            }
             if let stakes = s.stakes { detail += ", \(stakes)" }
             detail += ", \(s.displayVariant)"
             if let venue = s.venue { detail += " at \(venue)" }
@@ -739,15 +987,25 @@ class AISessionService: ObservableObject {
         var s = session
         if fieldIsNull(fields["hoursPlayed"]) { s.hoursPlayed = nil }
         if let amount = parseDoubleValue(fields["amount"]) { s.amount = amount }
-        if let hours = parseDoubleValue(fields["hoursPlayed"]) { s.hoursPlayed = hours }
+        if let hours = parseHoursFieldValue(fields["hoursPlayed"]) { s.hoursPlayed = hours }
         if fieldIsNull(fields["stakes"]) { s.stakes = nil }
         if let stakes = fields["stakes"] as? String { s.stakes = normalizedText(stakes) }
         if fieldIsNull(fields["venue"]) { s.venue = nil }
         if let raw = fields["venue"] as? String { s.venue = VenueCleaner.clean(raw) }
+        if fieldIsNull(fields["rake"]) || shouldClearPositiveOptional(fields["rake"]) { s.rake = nil }
+        if let rake = parsePositiveDoubleValue(fields["rake"]) { s.rake = rake }
+        if fieldIsNull(fields["tips"]) || shouldClearPositiveOptional(fields["tips"]) { s.tips = nil }
+        if let tips = parsePositiveDoubleValue(fields["tips"]) { s.tips = tips }
+        if fieldIsNull(fields["food"]) || shouldClearPositiveOptional(fields["food"]) { s.food = nil }
+        if let food = parsePositiveDoubleValue(fields["food"]) { s.food = food }
+        if fieldIsNull(fields["travel"]) || shouldClearPositiveOptional(fields["travel"]) { s.travel = nil }
+        if let travel = parsePositiveDoubleValue(fields["travel"]) { s.travel = travel }
+        if fieldIsNull(fields["fees"]) || shouldClearPositiveOptional(fields["fees"]) { s.fees = nil }
+        if let fees = parsePositiveDoubleValue(fields["fees"]) { s.fees = fees }
         if fieldIsNull(fields["notes"]) { s.notes = "" }
         if let notes = fields["notes"] as? String { s.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines) }
         if fieldIsNull(fields["variant"]) { s.variant = nil }
-        if let variant = fields["variant"] as? String { s.variant = normalizedText(variant) }
+        if let variant = fields["variant"] as? String { s.variant = normalizedVariant(variant) }
         if fieldIsNull(fields["buyIn"]) { s.buyIn = nil }
         if let buyIn = parseDoubleValue(fields["buyIn"]) { s.buyIn = buyIn }
         if fieldIsNull(fields["cashOut"]) { s.cashOut = nil }
@@ -759,11 +1017,16 @@ class AISessionService: ObservableObject {
         if fieldIsNull(fields["handNotes"]) { s.handNotes = nil }
         if let handNotes = fields["handNotes"] as? String { s.handNotes = normalizedText(handNotes) }
         if fieldIsNull(fields["tags"]) { s.tags = [] }
-        if fields["tags"] is [String] {
+        if fields.keys.contains("tags"), !fieldIsNull(fields["tags"]) {
             s.tags = normalizedTags(from: fields["tags"])
         }
-        if let formatRaw = (fields["gameFormat"] as? String) ?? (fields["gameType"] as? String),
-           let gameType = GameType(rawValue: formatRaw) { s.gameType = gameType }
+        let rawGameType = (fields["gameFormat"] as? String) ?? (fields["gameType"] as? String)
+        if let gameType = normalizedGameType(from: rawGameType) {
+            s.gameType = gameType
+        }
+        if isLegacyPLOGameType(rawGameType) {
+            s.variant = s.variant ?? PokerVariant.plo.rawValue
+        }
         if let dateStr = fields["date"] as? String {
             if let d = parseDateString(dateStr) { s.date = d }
         }
@@ -774,6 +1037,11 @@ class AISessionService: ObservableObject {
         value is NSNull
     }
 
+    private static func shouldClearPositiveOptional(_ value: Any?) -> Bool {
+        guard let numeric = parseDoubleValue(value) else { return false }
+        return abs(numeric) <= 0.0001
+    }
+
     private static func normalizedText(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -781,10 +1049,39 @@ class AISessionService: ObservableObject {
     }
 
     private static func normalizedTags(from value: Any?) -> [String] {
-        guard let tags = value as? [String] else { return [] }
-        return tags
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
+        let rawTags: [String]
+        switch value {
+        case let tags as [String]:
+            rawTags = tags
+        case let tags as [Any]:
+            rawTags = tags.compactMap { $0 as? String }
+        case let tag as String:
+            rawTags = tag.split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\n" }).map(String.init)
+        default:
+            return []
+        }
+
+        var seen = Set<String>()
+        var orderedTags: [String] = []
+
+        for rawTag in rawTags {
+            let trimmed = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalizedToken = comparableToken(for: trimmed)
+            guard let normalized = SessionTag.allCases.first(where: { comparableToken(for: $0.rawValue) == normalizedToken })?.rawValue else {
+                continue
+            }
+            guard seen.insert(normalizedToken).inserted else { continue }
+            orderedTags.append(normalized)
+        }
+
+        return orderedTags
+    }
+
+    private static func comparableToken(for value: String) -> String {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
     }
 }

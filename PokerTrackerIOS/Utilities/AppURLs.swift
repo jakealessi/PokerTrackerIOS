@@ -9,17 +9,24 @@ import Foundation
 
 enum AppURLs {
     static let baseURL = "https://jakealessi.github.io/PortfolioWebsite"
+
+    private static func resolvedURL(_ primary: String, fallback: String) -> URL {
+        URL(string: primary) ?? URL(string: fallback) ?? URL(fileURLWithPath: "/")
+    }
     
     static var privacyPolicy: URL {
-        URL(string: "\(baseURL)/privacy-policy")!
+        resolvedURL("\(baseURL)/privacy-policy", fallback: "https://jakealessi.github.io/PortfolioWebsite/privacy-policy")
     }
     
     static var support: URL {
-        URL(string: "\(baseURL)/support")!
+        resolvedURL("\(baseURL)/support", fallback: "https://jakealessi.github.io/PortfolioWebsite/support")
     }
 
     /// Apple's standard EULA — use this or a custom terms URL
     static var termsOfUse: URL {
-        URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+        resolvedURL(
+            "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+            fallback: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+        )
     }
 }

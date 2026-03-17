@@ -58,7 +58,10 @@ struct SessionsListView: View {
                     .listStyle(.plain)
                     .animation(AppTheme.smoothSpring, value: sessionStore.listSessions.count)
                 }
-                
+
+                if sessionStore.hasActiveSessionFilters {
+                    activeFiltersBar
+                }
                 searchBar
             }
             .animation(AppTheme.smoothSpring, value: sessionStore.listSessions.isEmpty)
@@ -99,7 +102,10 @@ struct SessionsListView: View {
             }) {
                 OddsCalculatorView(preselectedSessionID: preselectedAttachSessionID)
             }
-            .sheet(isPresented: $showingFilters) { FilterView() }
+            .sheet(isPresented: $showingFilters) {
+                FilterView()
+                    .environmentObject(sessionStore)
+            }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(item: $sessionToEdit) { session in EditSessionView(session: session) }
             .alert("Delete Session?", isPresented: Binding(
@@ -190,12 +196,38 @@ struct SessionsListView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
     }
+
+    private var activeFiltersBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(sessionStore.activeFilterLabels, id: \.self) { label in
+                    Text(label)
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(AppTheme.cardBackground))
+                }
+
+                Button("Clear") {
+                    sessionStore.clearFilters()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+        }
+    }
 }
 
 struct FilterView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var sessionStore: SessionStore
     @State private var gameType: GameType?
+    @State private var variant: String?
+    @State private var stakes: String?
+    @State private var venue: String?
+    @State private var tag: String?
     @State private var useDateFrom = false
     @State private var useDateTo = false
     @State private var dateFrom = Date().addingTimeInterval(-30*24*3600)
@@ -208,6 +240,35 @@ struct FilterView: View {
                     Picker("Filter by", selection: $gameType) {
                         Text("All").tag(nil as GameType?)
                         ForEach(GameType.formatOptions, id: \.self) { Text($0.rawValue).tag($0 as GameType?) }
+                    }
+                }
+                Section("Session Details") {
+                    Picker("Variant", selection: $variant) {
+                        Text("All").tag(nil as String?)
+                        ForEach(sessionStore.availableVariants, id: \.self) { option in
+                            Text(option).tag(option as String?)
+                        }
+                    }
+
+                    Picker("Stakes", selection: $stakes) {
+                        Text("All").tag(nil as String?)
+                        ForEach(sessionStore.availableStakes, id: \.self) { option in
+                            Text(option).tag(option as String?)
+                        }
+                    }
+
+                    Picker("Venue", selection: $venue) {
+                        Text("All").tag(nil as String?)
+                        ForEach(sessionStore.availableVenues, id: \.self) { option in
+                            Text(option).tag(option as String?)
+                        }
+                    }
+
+                    Picker("Tag", selection: $tag) {
+                        Text("All").tag(nil as String?)
+                        ForEach(sessionStore.availableTags, id: \.self) { option in
+                            Text(option).tag(option as String?)
+                        }
                     }
                 }
                 Section("Date Range") {
@@ -227,11 +288,13 @@ struct FilterView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Clear") {
                         gameType = nil
+                        variant = nil
+                        stakes = nil
+                        venue = nil
+                        tag = nil
                         useDateFrom = false
                         useDateTo = false
-                        sessionStore.filterGameType = nil
-                        sessionStore.filterDateFrom = nil
-                        sessionStore.filterDateTo = nil
+                        sessionStore.clearFilters()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -246,12 +309,20 @@ struct FilterView: View {
                             sessionStore.filterDateTo = finalTo
                         }
                         sessionStore.filterGameType = gameType
+                        sessionStore.filterVariant = variant
+                        sessionStore.filterStakes = stakes
+                        sessionStore.filterVenue = venue
+                        sessionStore.filterTag = tag
                         dismiss()
                     }
                 }
             }
             .onAppear {
                 gameType = sessionStore.filterGameType
+                variant = sessionStore.filterVariant
+                stakes = sessionStore.filterStakes
+                venue = sessionStore.filterVenue
+                tag = sessionStore.filterTag
                 useDateFrom = sessionStore.filterDateFrom != nil
                 useDateTo = sessionStore.filterDateTo != nil
                 if let from = sessionStore.filterDateFrom { dateFrom = from }

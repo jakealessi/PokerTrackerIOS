@@ -14,6 +14,8 @@ struct ImageAttachmentsSection: View {
     var wrapInSection: Bool = true
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var isLoading = false
+    @State private var loadTask: Task<Void, Never>?
+    @State private var loadGeneration = 0
     
     var body: some View {
         Group {
@@ -37,9 +39,16 @@ struct ImageAttachmentsSection: View {
             Label("Add Photos", systemImage: "photo.on.rectangle.angled")
         }
         .onChange(of: selectedItems) { _, newItems in
-            Task {
-                await loadAndSaveImages(from: newItems)
+            loadTask?.cancel()
+            loadGeneration += 1
+            let generation = loadGeneration
+            loadTask = Task {
+                await loadAndSaveImages(from: newItems, generation: generation)
             }
+        }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
         }
 
         if isLoading {
@@ -83,25 +92,34 @@ struct ImageAttachmentsSection: View {
         }
     }
     
-    private func loadAndSaveImages(from items: [PhotosPickerItem]) async {
+    private func loadAndSaveImages(from items: [PhotosPickerItem], generation: Int) async {
         await MainActor.run {
             isLoading = true
             selectedItems = []
         }
-        
+
+        defer {
+            Task { @MainActor in
+                guard loadGeneration == generation else { return }
+                isLoading = false
+                loadTask = nil
+            }
+        }
+
         for item in items {
+            guard !Task.isCancelled else { return }
             if let transferred = try? await item.loadTransferable(type: ImageDataTransfer.self),
                let image = UIImage(data: transferred.data),
                let compressed = SessionImageStore.compressForStorage(image),
                let id = SessionImageStore.save(compressed) {
+                if Task.isCancelled {
+                    SessionImageStore.delete(imageId: id)
+                    return
+                }
                 await MainActor.run {
                     imageIds.append(id)
                 }
             }
-        }
-        
-        await MainActor.run {
-            isLoading = false
         }
     }
 }

@@ -41,8 +41,9 @@
 		A1000041 /* OddsCalculatorUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000041 /* OddsCalculatorUsage.swift */; };
 		A1000042 /* PokerEquityEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000042 /* PokerEquityEngine.swift */; };
 		A1000043 /* OddsCalculatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000043 /* OddsCalculatorView.swift */; };
-		A1000044 /* AnonymousUserID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000044 /* AnonymousUserID.swift */; };
-		A1000045 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000045 /* ReminderManager.swift */; };
+			A1000044 /* AnonymousUserID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000044 /* AnonymousUserID.swift */; };
+			A1000045 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000045 /* ReminderManager.swift */; };
+			A1000046 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A2000046 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,14 +78,14 @@
 		A2000036 /* SubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionStore.swift; sourceTree = "<group>"; };
 		A2000037 /* SubscriptionPaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionPaywallView.swift; sourceTree = "<group>"; };
 		A2000038 /* AISessionCrafterUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISessionCrafterUsage.swift; sourceTree = "<group>"; };
-		A2000039 /* PokerTrackerIOS.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = PokerTrackerIOS.storekit; sourceTree = "<group>"; };
 		A2000040 /* AppURLs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppURLs.swift; sourceTree = "<group>"; };
 		A2000041 /* OddsCalculatorUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsCalculatorUsage.swift; sourceTree = "<group>"; };
 		A2000042 /* PokerEquityEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerEquityEngine.swift; sourceTree = "<group>"; };
 		A2000043 /* OddsCalculatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OddsCalculatorView.swift; sourceTree = "<group>"; };
-		A2000044 /* AnonymousUserID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousUserID.swift; sourceTree = "<group>"; };
-		A2000045 /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
-		A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+			A2000044 /* AnonymousUserID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousUserID.swift; sourceTree = "<group>"; };
+			A2000045 /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
+			A2000046 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+			A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B77267D62F5406F200A2990B /* PokerTrackerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PokerTrackerIOS.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -121,10 +122,10 @@
 				A2000009 /* SettingsStore.swift */,
 				A2000036 /* SubscriptionStore.swift */,
 				A2000003 /* Assets.xcassets */,
-				A2000025 /* APIKeys.plist */,
-				A2000026 /* APIKeys.example.plist */,
-				A2000039 /* PokerTrackerIOS.storekit */,
-			);
+					A2000025 /* APIKeys.plist */,
+					A2000026 /* APIKeys.example.plist */,
+					A2000046 /* PrivacyInfo.xcprivacy */,
+				);
 			path = PokerTrackerIOS;
 			sourceTree = "<group>";
 		};
@@ -259,10 +260,11 @@
 		A6000003 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
-				A1000003 /* Assets.xcassets in Resources */,
-				A1000025 /* APIKeys.plist in Resources */,
-			);
+				files = (
+					A1000003 /* Assets.xcassets in Resources */,
+					A1000025 /* APIKeys.plist in Resources */,
+					A1000046 /* PrivacyInfo.xcprivacy in Resources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */

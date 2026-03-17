@@ -10,14 +10,19 @@ struct AnalyticsView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settingsStore: SettingsStore
     @EnvironmentObject var subscriptionStore: SubscriptionStore
-    @State private var showingDateRange = false
+    @State private var showingFilters = false
     @State private var showingPaywall = false
-    @State private var showingSettings = false
     @State private var profitBreakdownDimension: ProfitBreakdownDimension = .venue
     
     private var currency: String { settingsStore.settings.currency }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    private var premiumCTAButtonTitle: String {
+        if subscriptionStore.proMonthlyProduct?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+            return "Unlock Premium — Start Free Trial"
+        }
+        return "Unlock Premium"
+    }
 
     private var currentStreakDisplay: (value: String, color: Color) {
         guard let latestSession = sessionStore.filteredSessions.first else {
@@ -36,8 +41,8 @@ struct AnalyticsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    if sessionStore.filterDateFrom != nil || sessionStore.filterDateTo != nil {
-                        dateRangeBanner
+                    if sessionStore.hasActiveSessionFilters {
+                        activeFiltersBanner
                     }
                     summaryCards
 
@@ -79,14 +84,14 @@ struct AnalyticsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showingDateRange = true
+                        showingFilters = true
                     } label: {
-                        Image(systemName: "calendar")
+                        Image(systemName: sessionStore.hasActiveSessionFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
                 }
             }
-            .sheet(isPresented: $showingDateRange) {
-                StatsDateRangeSheet()
+            .sheet(isPresented: $showingFilters) {
+                FilterView()
                     .environmentObject(sessionStore)
             }
             .sheet(isPresented: $showingPaywall) {
@@ -95,9 +100,6 @@ struct AnalyticsView: View {
                     subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
             }
         }
     }
@@ -121,7 +123,7 @@ struct AnalyticsView: View {
             Button {
                 showingPaywall = true
             } label: {
-                Text("Unlock Premium — 1 Month Free")
+                Text(premiumCTAButtonTitle)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -139,17 +141,17 @@ struct AnalyticsView: View {
         .cardStyle()
     }
 
-    private var dateRangeBanner: some View {
+    private var activeFiltersBanner: some View {
         HStack {
-            Image(systemName: "calendar.badge.clock")
+            Image(systemName: "line.3.horizontal.decrease.circle.fill")
                 .foregroundStyle(AppTheme.accent)
-            Text(dateRangeLabel)
+            Text(sessionStore.activeFilterLabels.joined(separator: " • "))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .lineLimit(3)
             Spacer()
             Button("Clear") {
-                sessionStore.filterDateFrom = nil
-                sessionStore.filterDateTo = nil
+                sessionStore.clearFilters()
             }
             .font(.subheadline.weight(.medium))
         }
@@ -177,26 +179,11 @@ struct AnalyticsView: View {
         return range.start...range.end
     }
     
-    private var dateRangeLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        if let from = sessionStore.filterDateFrom, let to = sessionStore.filterDateTo {
-            return "\(formatter.string(from: from)) – \(formatter.string(from: to))"
-        }
-        if let from = sessionStore.filterDateFrom {
-            return "From \(formatter.string(from: from))"
-        }
-        if let to = sessionStore.filterDateTo {
-            return "Until \(formatter.string(from: to))"
-        }
-        return ""
-    }
-    
     // MARK: - Summary Cards
     
     private var summaryCards: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            summaryCard("Total P/L", PokerSession.formatCurrency(sessionStore.totalProfit, currency: currency), sessionStore.totalProfit >= 0 ? winColor : lossColor)
+            summaryCard("Net P/L", PokerSession.formatCurrency(sessionStore.totalProfit, currency: currency), sessionStore.totalProfit >= 0 ? winColor : lossColor)
             summaryCard("Sessions", "\(sessionStore.totalSessions)", AppTheme.accent)
             summaryCard("Win Rate", String(format: "%.0f%%", sessionStore.winRate), AppTheme.accent)
             summaryCard("Avg Session", PokerSession.formatCurrency(sessionStore.averageSession, currency: currency), sessionStore.averageSession >= 0 ? winColor : lossColor)
@@ -226,7 +213,7 @@ struct AnalyticsView: View {
         let data = sessionStore.profitOverTime
         let color: Color = sessionStore.totalProfit >= 0 ? winColor : lossColor
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Cumulative Profit")
+            Text("Cumulative Net Profit")
                 .font(.headline)
             
             Chart {
@@ -323,14 +310,14 @@ struct AnalyticsView: View {
                         }
                     }
                     if let best = sessionStore.bestSession {
-                        Text("Best: \(PokerSession.formatCurrency(best.amount, currency: currency))")
+                        Text("Best: \(PokerSession.formatCurrency(best.netAmount, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(winColor)
+                            .foregroundStyle(best.netAmount >= 0 ? winColor : lossColor)
                     }
                     if let worst = sessionStore.worstSession {
-                        Text("Worst: \(PokerSession.formatCurrency(worst.amount, currency: currency))")
+                        Text("Worst: \(PokerSession.formatCurrency(worst.netAmount, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(lossColor)
+                            .foregroundStyle(worst.netAmount >= 0 ? winColor : lossColor)
                     }
                 }
                 
@@ -345,7 +332,6 @@ struct AnalyticsView: View {
 
     private var drawdownChart: some View {
         let data = sessionStore.drawdownOverTime
-        let minDrawdown = data.map(\.1).min() ?? 0
         return VStack(alignment: .leading, spacing: 8) {
             Text("Drawdown Over Time")
                 .font(.headline)
@@ -378,7 +364,7 @@ struct AnalyticsView: View {
             }
             .frame(height: 190)
             .chartXScale(domain: cumulativeProfitDomain)
-            .chartYScale(domain: minDrawdown...0)
+            .chartYScale(domain: drawdownDomain(for: data))
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
                     AxisGridLine()
@@ -400,12 +386,21 @@ struct AnalyticsView: View {
         .padding()
         .cardStyle()
     }
+
+    private func drawdownDomain(for data: [(Date, Double)]) -> ClosedRange<Double> {
+        let minDrawdown = data.map(\.1).min() ?? 0
+        if minDrawdown < 0 {
+            return minDrawdown...0
+        }
+        // Charts misbehave with a collapsed 0...0 range on all-up graphs.
+        return -1...0
+    }
     
     // MARK: - Monthly Bar Chart
     
     private var monthlyBarChart: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Monthly Results")
+            Text("Monthly Net Results")
                 .font(.headline)
             
             Chart {
@@ -454,7 +449,7 @@ struct AnalyticsView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Profit Breakdown")
+                    Text("Net Profit Breakdown")
                         .font(.headline)
                     Text("By \(profitBreakdownDimension.rawValue)")
                         .font(.caption)
@@ -529,6 +524,10 @@ struct AnalyticsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if sessionStore.thisMonthProfit != 0 {
                 detailRow("This Month", PokerSession.formatCurrency(sessionStore.thisMonthProfit, currency: currency), sessionStore.thisMonthProfit >= 0 ? winColor : lossColor)
+                Divider()
+            }
+            if sessionStore.totalExpenses > 0 {
+                detailRow("Expenses", PokerSession.formatCurrency(sessionStore.totalExpenses, currency: currency), lossColor)
                 Divider()
             }
             if sessionStore.totalHoursPlayed > 0 {

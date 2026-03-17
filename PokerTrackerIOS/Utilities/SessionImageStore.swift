@@ -21,7 +21,7 @@ enum SessionImageStore {
         let url = imagesDirectory.appendingPathComponent("\(imageId).jpg")
         do {
             try FileManager.default.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
-            try imageData.write(to: url)
+            try imageData.write(to: url, options: .atomic)
             return imageId
         } catch {
             return nil

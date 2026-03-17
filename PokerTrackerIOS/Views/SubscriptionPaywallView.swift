@@ -15,6 +15,18 @@ struct SubscriptionPaywallView: View {
     var title: String = "Premium"
     var subtitle: String? = "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
 
+    private var purchaseButtonTitle: String {
+        if subscriptionStore.proMonthlyProduct?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+            return "Start Free Trial"
+        }
+        return "Subscribe Now"
+    }
+
+    private var purchaseFooterText: String? {
+        guard let product = subscriptionStore.proMonthlyProduct else { return nil }
+        return subscriptionStore.purchaseFooterText(for: product)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
@@ -35,12 +47,12 @@ struct SubscriptionPaywallView: View {
                 }
                 .padding(.top, 20)
 
-                if subscriptionStore.proMonthlyProduct == nil && (subscriptionStore.isLoading || subscriptionStore.products.isEmpty) {
+                if subscriptionStore.isLoading && subscriptionStore.proMonthlyProduct == nil {
                     ProgressView("Loading subscription…")
                         .padding()
                 } else if let product = subscriptionStore.proMonthlyProduct {
                     VStack(spacing: 12) {
-                        Text(subscriptionStore.subscriptionDisplayPrice ?? product.displayPrice + "/month")
+                        Text(subscriptionStore.subscriptionDisplayPrice ?? subscriptionStore.recurringPriceDescription(for: product))
                             .font(.headline)
 
                         Button {
@@ -48,6 +60,7 @@ struct SubscriptionPaywallView: View {
                             activeTask = Task {
                                 do {
                                     didAttemptPurchase = true
+                                    subscriptionStore.setErrorMessage(nil)
                                     _ = try await subscriptionStore.purchase(product)
                                     guard !Task.isCancelled else { return }
                                     // Don't auto-dismiss here; `isSubscribed` can briefly flip due to async entitlement refresh.
@@ -57,7 +70,7 @@ struct SubscriptionPaywallView: View {
                                 }
                             }
                         } label: {
-                            Text("Start 1 Month Free Trial")
+                            Text(purchaseButtonTitle)
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
@@ -68,9 +81,18 @@ struct SubscriptionPaywallView: View {
                         .buttonStyle(.plain)
                         .disabled(subscriptionStore.isLoading)
 
-                        Text("Then \(product.displayPrice)/month. Cancel anytime.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if let purchaseFooterText {
+                            Text(purchaseFooterText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let errorMessage = subscriptionStore.errorMessage, !errorMessage.isEmpty {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(20)
                     .background(AppTheme.cardBackground)
@@ -92,6 +114,7 @@ struct SubscriptionPaywallView: View {
                     activeTask?.cancel()
                     activeTask = Task {
                         didAttemptPurchase = true
+                        subscriptionStore.setErrorMessage(nil)
                         await subscriptionStore.restorePurchases()
                         guard !Task.isCancelled else { return }
                         // Dismiss is handled below once subscription is confirmed active.

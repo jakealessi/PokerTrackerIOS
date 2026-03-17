@@ -38,7 +38,7 @@ struct DashboardView: View {
     }
 
     private var allSessionsProfit: Double {
-        allSessions.reduce(0) { $0 + $1.amount }
+        allSessions.reduce(0) { $0 + $1.netAmount }
     }
 
     private var allSessionsCount: Int {
@@ -366,7 +366,7 @@ struct DashboardView: View {
                 .tint(AppTheme.accent)
             }
 
-            Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
+            Text(PokerSession.formatCurrency(session.netAmount, currency: settingsStore.settings.currency))
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(sessionTint)
                 .monospacedDigit()
@@ -394,10 +394,18 @@ struct DashboardView: View {
                 }
             }
 
-            if let detail = payload.detail, !detail.isEmpty {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                if session.hasExpenses {
+                    Text("Gross \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency)) • Expenses \(PokerSession.formatCurrency(session.totalExpenses, currency: settingsStore.settings.currency))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let detail = payload.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(14)
@@ -414,7 +422,7 @@ struct DashboardView: View {
     }
 
     private func sessionCardPrimaryMeta(_ session: PokerSession) -> String {
-        var parts = [session.displayVariantAbbreviation, session.gameType.abbreviation]
+        var parts = [session.displayVariantAbbreviation, session.displayGameTypeAbbreviation]
         if let stakes = session.stakes, !stakes.isEmpty {
             parts.append(stakes)
         }
@@ -630,7 +638,7 @@ struct DashboardView: View {
             }
             return
         }
-        if !subscriptionStore.isSubscribed {
+        if !usedOfflineParser, !subscriptionStore.isSubscribed {
             AISessionCrafterUsage.consumeOne()
         }
         let session = PokerSession(
@@ -642,6 +650,11 @@ struct DashboardView: View {
             hoursPlayed: parsed.hoursPlayed,
             stakes: parsed.stakes,
             venue: parsed.venue,
+            rake: parsed.rake,
+            tips: parsed.tips,
+            food: parsed.food,
+            travel: parsed.travel,
+            fees: parsed.fees,
             buyIn: parsed.buyIn,
             cashOut: parsed.cashOut,
             tournamentPosition: parsed.tournamentPosition,

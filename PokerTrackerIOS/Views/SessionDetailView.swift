@@ -113,10 +113,18 @@ struct SessionDetailView: View {
                     .foregroundStyle(.secondary)
                     .kerning(1)
             }
-            Text(formattedAmount(s.amount))
+            Text(formattedAmount(s.netAmount))
                 .font(.system(size: 40, weight: .bold, design: .rounded))
                 .foregroundStyle(resultColor)
                 .contentTransition(.numericText())
+            Text(s.hasExpenses ? "Net bankroll change" : "Session result")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            if s.hasExpenses {
+                Text("Gross \(formattedAmount(s.amount)) • Expenses \(formattedUnsignedAmount(s.totalExpenses))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             Text(s.date, style: .date)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -153,7 +161,7 @@ struct SessionDetailView: View {
         return VStack(alignment: .leading, spacing: 16) {
             // Game — format, variant, stakes
             detailCard(title: "Game") {
-                detailRow("Format", s.gameType.abbreviation)
+                detailRow("Format", s.displayGameType)
                 detailRow("Variant", s.displayVariantAbbreviation)
                 if let stakes = s.stakes, !stakes.isEmpty {
                     detailRow("Stakes", stakes)
@@ -170,6 +178,17 @@ struct SessionDetailView: View {
                     if settingsStore.settings.showHourlyRate, let rate = s.hourlyRate {
                         detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency) + "/hr")
                     }
+                }
+            }
+
+            if s.hasExpenses {
+                detailCard(title: "Expenses") {
+                    detailRow("Gross Result", formattedAmount(s.amount))
+                    ForEach(s.expenseEntries, id: \.label) { entry in
+                        detailRow(entry.label, formattedUnsignedAmount(entry.amount))
+                    }
+                    detailRow("Total Expenses", formattedUnsignedAmount(s.totalExpenses))
+                    detailRow("Net Result", formattedAmount(s.netAmount))
                 }
             }
             
@@ -412,6 +431,14 @@ struct SessionDetailView: View {
         return PokerSession.formatCurrency(value, currency: currency)
     }
 
+    private func formattedUnsignedAmount(_ value: Double) -> String {
+        let currency = settingsStore.settings.currency
+        if settingsStore.settings.useCompactCurrency {
+            return PokerSession.formatCompactCurrency(abs(value), currency: currency)
+        }
+        return PokerSession.formatCurrency(abs(value), currency: currency)
+    }
+
     private var currentSession: PokerSession {
         sessionStore.sessions.first(where: { $0.id == session.id }) ?? session
     }
@@ -419,9 +446,17 @@ struct SessionDetailView: View {
     private var sessionShareText: String {
         let s = currentSession
         var lines = [
-            "\(s.displayVariantAbbreviation) \(s.gameType.abbreviation) • \(formattedAmount(s.amount))",
+            "\(s.displayVariantAbbreviation) \(s.displayGameTypeAbbreviation) • \(formattedAmount(s.netAmount))",
             s.date.formatted(date: .long, time: .omitted)
         ]
+        if s.hasExpenses {
+            lines.append("Gross Result: \(formattedAmount(s.amount))")
+            for entry in s.expenseEntries {
+                lines.append("\(entry.label): \(formattedUnsignedAmount(entry.amount))")
+            }
+            lines.append("Total Expenses: \(formattedUnsignedAmount(s.totalExpenses))")
+            lines.append("Net Result: \(formattedAmount(s.netAmount))")
+        }
         if let stakes = s.stakes, !stakes.isEmpty { lines.append("Stakes: \(stakes)") }
         if let venue = s.venue, !venue.isEmpty { lines.append("Venue: \(venue)") }
         if let start = s.startTime, let end = s.endTime {

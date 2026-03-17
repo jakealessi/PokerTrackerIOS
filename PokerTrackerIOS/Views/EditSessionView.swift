@@ -22,6 +22,11 @@ struct EditSessionView: View {
     @State private var hoursPlayed: String = ""
     @State private var stakes: String = ""
     @State private var venue: String = ""
+    @State private var rake: String = ""
+    @State private var tips: String = ""
+    @State private var food: String = ""
+    @State private var travel: String = ""
+    @State private var fees: String = ""
     @State private var buyIn: String = ""
     @State private var cashOut: String = ""
     @State private var tournamentPosition: String = ""
@@ -33,16 +38,15 @@ struct EditSessionView: View {
     @State private var selectedTags: Set<String> = []
     @State private var showSessionDetails = true
     @State private var showTournamentDetails = true
+    @State private var showExpenses = false
     @State private var showNotesAndTags = false
     @State private var showAttachments = false
+    @State private var didSave = false
     
     private let calendar = Calendar.current
     
     private var parsedAmount: Double? {
-        let cleaned = amount.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return nil }
-        return Double(cleaned)
+        parsedUnsignedCurrency(amount)
     }
     
     private var isValid: Bool { parsedAmount != nil }
@@ -58,6 +62,20 @@ struct EditSessionView: View {
     private var isTournamentGame: Bool {
         gameType == .tournament || gameType == .sitAndGo
     }
+
+    private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
+    private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    private var parsedExpenseTotal: Double {
+        [rake, tips, food, travel, fees].compactMap { parsedExpense($0) }.reduce(0, +)
+    }
+    private var expenseItemCount: Int {
+        [rake, tips, food, travel, fees].compactMap { parsedExpense($0) }.count
+    }
+    private var netAmountPreview: Double? {
+        guard let gross = parsedAmount else { return nil }
+        let signedGross = isWin ? gross : -gross
+        return signedGross - parsedExpenseTotal
+    }
     
     var body: some View {
         NavigationStack {
@@ -68,6 +86,7 @@ struct EditSessionView: View {
                 if gameType == .tournament || gameType == .sitAndGo {
                     tournamentSection
                 }
+                expensesSection
                 notesAndTagsSection
                 attachmentsSection
             }
@@ -117,15 +136,21 @@ struct EditSessionView: View {
                     showTournamentDetails = true
                 }
             }
+            .onDisappear {
+                guard !didSave else { return }
+                let unsavedNewIds = Set(imageIds).subtracting(session.imageIds)
+                guard !unsavedNewIds.isEmpty else { return }
+                SessionImageStore.delete(imageIds: Array(unsavedNewIds))
+            }
         }
     }
 
     private var quickEntrySection: some View {
         Section("Quick Entry") {
             HStack {
-                Text("Amount")
+                Text("Table Result")
                 TextField("0.00", text: $amount)
-                    .keyboardType(.decimalPad)
+                    .keyboardType(.numbersAndPunctuation)
                     .multilineTextAlignment(.trailing)
             }
 
@@ -199,7 +224,7 @@ struct EditSessionView: View {
                 }
 
                 TextField("Hours Played", text: $hoursPlayed)
-                    .keyboardType(.decimalPad)
+                    .keyboardType(.numbersAndPunctuation)
 
                 if supportsStakes {
                     HStack {
@@ -245,13 +270,45 @@ struct EditSessionView: View {
             )
             if showTournamentDetails {
                 TextField("Buy-in", text: $buyIn)
-                    .keyboardType(.decimalPad)
+                    .keyboardType(.numbersAndPunctuation)
                 TextField("Cash Out", text: $cashOut)
-                    .keyboardType(.decimalPad)
+                    .keyboardType(.numbersAndPunctuation)
                 TextField("Tournament Position", text: $tournamentPosition)
-                    .keyboardType(.numberPad)
+                    .keyboardType(.numbersAndPunctuation)
                 TextField("Rebuys", text: $rebuys)
-                    .keyboardType(.numberPad)
+                    .keyboardType(.numbersAndPunctuation)
+            }
+        }
+    }
+
+    private var expensesSection: some View {
+        Section {
+            SessionDisclosureToggleRow(
+                title: "Expenses & Fees",
+                summary: expensesSummary,
+                systemImage: "creditcard",
+                isExpanded: $showExpenses
+            )
+            if showExpenses {
+                SessionCurrencyInputRow(label: "Rake", text: $rake)
+                SessionCurrencyInputRow(label: "Tips", text: $tips)
+                SessionCurrencyInputRow(label: "Food", text: $food)
+                SessionCurrencyInputRow(label: "Travel", text: $travel)
+                SessionCurrencyInputRow(label: "Fees", text: $fees)
+
+                if parsedExpenseTotal > 0 {
+                    LabeledContent("Total Expenses") {
+                        Text(PokerSession.formatCurrency(parsedExpenseTotal, currency: settingsStore.settings.currency))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let netAmountPreview {
+                    LabeledContent("Net Bankroll Change") {
+                        Text(PokerSession.formatCurrency(netAmountPreview, currency: settingsStore.settings.currency))
+                            .foregroundStyle(netAmountPreview >= 0 ? winColor : lossColor)
+                    }
+                }
             }
         }
     }
@@ -325,6 +382,11 @@ struct EditSessionView: View {
         hoursPlayed = session.hoursPlayed.map { String(format: "%.1f", $0) } ?? ""
         stakes = session.stakes ?? ""
         venue = session.venue ?? ""
+        rake = session.rake.map { String(format: "%.2f", $0) } ?? ""
+        tips = session.tips.map { String(format: "%.2f", $0) } ?? ""
+        food = session.food.map { String(format: "%.2f", $0) } ?? ""
+        travel = session.travel.map { String(format: "%.2f", $0) } ?? ""
+        fees = session.fees.map { String(format: "%.2f", $0) } ?? ""
         startTime = session.startTime
         endTime = session.endTime
         buyIn = session.buyIn.map { String(format: "%.2f", $0) } ?? ""
@@ -336,6 +398,7 @@ struct EditSessionView: View {
         selectedTags = Set(session.tags)
         showSessionDetails = true
         showTournamentDetails = session.gameType == .tournament || session.gameType == .sitAndGo
+        showExpenses = session.hasExpenses
         showNotesAndTags = !trimmed(notes).isEmpty || !trimmed(handNotes).isEmpty || !selectedTags.isEmpty
         showAttachments = !imageIds.isEmpty || !session.attachedHands.isEmpty
         autoPopulateMissingTimeFields()
@@ -348,7 +411,7 @@ struct EditSessionView: View {
             return
         }
 
-        guard let hours = Double(hoursPlayed), hours > 0 else { return }
+        guard let hours = parsedHours(hoursPlayed), hours > 0 else { return }
 
         if startTime != nil, endTime == nil {
             endTime = PokerSession.endTime(from: startTime, hoursPlayed: hours)
@@ -364,15 +427,20 @@ struct EditSessionView: View {
         }
         let finalAmount = isWin ? parsedAmount : -parsedAmount
         let calculatedHours = PokerSession.calculatedHours(from: startTime, to: endTime)
-        let finalHoursPlayed = calculatedHours ?? Double(hoursPlayed)
+        let finalHoursPlayed = calculatedHours ?? parsedHours(hoursPlayed)
         let normalizedVariant = trimmed(finalVariant)
         let normalizedStakes = trimmed(stakes)
         let normalizedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedHandNotes = handNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalBuyIn = isTournamentGame ? Double(buyIn) : nil
-        let finalCashOut = isTournamentGame ? Double(cashOut) : nil
-        let finalTournamentPosition = isTournamentGame ? Int(tournamentPosition) : nil
-        let finalRebuys = isTournamentGame ? Int(rebuys) : nil
+        let finalRake = parsedExpense(rake)
+        let finalTips = parsedExpense(tips)
+        let finalFood = parsedExpense(food)
+        let finalTravel = parsedExpense(travel)
+        let finalFees = parsedExpense(fees)
+        let finalBuyIn = isTournamentGame ? parsedUnsignedCurrency(buyIn) : nil
+        let finalCashOut = isTournamentGame ? parsedUnsignedCurrency(cashOut) : nil
+        let finalTournamentPosition = isTournamentGame ? parsedWholeNumber(tournamentPosition) : nil
+        let finalRebuys = isTournamentGame ? parsedWholeNumber(rebuys) : nil
         var updated = session
         updated.amount = finalAmount
         updated.date = date
@@ -382,6 +450,11 @@ struct EditSessionView: View {
         updated.hoursPlayed = finalHoursPlayed
         updated.stakes = (supportsStakes && !normalizedStakes.isEmpty) ? normalizedStakes : nil
         updated.venue = VenueCleaner.clean(venue)
+        updated.rake = finalRake
+        updated.tips = finalTips
+        updated.food = finalFood
+        updated.travel = finalTravel
+        updated.fees = finalFees
         updated.startTime = startTime
         updated.endTime = endTime
         updated.buyIn = finalBuyIn
@@ -395,12 +468,13 @@ struct EditSessionView: View {
         let removedIds = Set(session.imageIds).subtracting(imageIds)
         SessionImageStore.delete(imageIds: Array(removedIds))
         sessionStore.updateSession(updated)
+        didSave = true
         dismiss()
     }
 
     private var sessionDetailsSummary: String {
         var parts: [String] = []
-        if let hours = Double(trimmed(hoursPlayed)), hours > 0 {
+        if let hours = parsedHours(hoursPlayed), hours > 0 {
             parts.append("\(String(format: "%.1f", hours))h")
         } else if startTime != nil || endTime != nil {
             parts.append("Time added")
@@ -414,6 +488,13 @@ struct EditSessionView: View {
         return parts.isEmpty ? "Venue, times, hours, and stakes" : parts.joined(separator: " • ")
     }
 
+    private var expensesSummary: String {
+        if parsedExpenseTotal > 0 {
+            return "\(PokerSession.formatCurrency(parsedExpenseTotal, currency: settingsStore.settings.currency)) across \(expenseItemCount) item\(expenseItemCount == 1 ? "" : "s")"
+        }
+        return "Track rake, tips, food, travel, and fees"
+    }
+
     private var tournamentSummary: String {
         var parts: [String] = []
         if !trimmed(buyIn).isEmpty {
@@ -422,7 +503,7 @@ struct EditSessionView: View {
         if !trimmed(tournamentPosition).isEmpty {
             parts.append("Pos \(trimmed(tournamentPosition))")
         }
-        if let rebuyCount = Int(trimmed(rebuys)), rebuyCount > 0 {
+        if let rebuyCount = parsedWholeNumber(rebuys), rebuyCount > 0 {
             parts.append("\(rebuyCount) rebuys")
         }
         return parts.isEmpty ? "Buy-in, cash out, placing, and rebuys" : parts.joined(separator: " • ")
@@ -452,5 +533,33 @@ struct EditSessionView: View {
 
     private func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func parsedUnsignedCurrency(_ value: String) -> Double? {
+        guard let amount = SessionParserService.parseNumericValue(from: value) else { return nil }
+        return abs(amount)
+    }
+
+    private func parsedExpense(_ value: String) -> Double? {
+        guard let amount = parsedUnsignedCurrency(value), amount > 0.0001 else { return nil }
+        return amount
+    }
+
+    private func parsedHours(_ value: String) -> Double? {
+        let cleaned = trimmed(value)
+        guard !cleaned.isEmpty else { return nil }
+        if let parsed = SessionParserService.parseHoursValue(from: cleaned) {
+            return parsed
+        }
+        if cleaned.rangeOfCharacter(from: CharacterSet.letters) != nil {
+            return nil
+        }
+        return SessionParserService.parseNumericValue(from: cleaned)
+    }
+
+    private func parsedWholeNumber(_ value: String) -> Int? {
+        let cleaned = trimmed(value)
+        guard !cleaned.isEmpty else { return nil }
+        return SessionParserService.parseOrdinalValue(from: cleaned)
     }
 }

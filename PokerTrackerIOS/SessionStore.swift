@@ -50,6 +50,10 @@ class SessionStore: ObservableObject {
     }
     @Published private(set) var dataVersion: Int = 0
     @Published var filterGameType: GameType?
+    @Published var filterVariant: String?
+    @Published var filterStakes: String?
+    @Published var filterVenue: String?
+    @Published var filterTag: String?
     @Published var filterDateFrom: Date?
     @Published var filterDateTo: Date?
     @Published var searchText: String = ""
@@ -92,6 +96,30 @@ class SessionStore: ObservableObject {
         if let type = filterGameType {
             result = result.filter { $0.gameType == type }
         }
+        if let variant = filterVariant {
+            result = result.filter {
+                $0.displayVariant.compare(variant, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+        }
+        if let stakes = filterStakes {
+            result = result.filter {
+                ($0.stakes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    .compare(stakes, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+        }
+        if let venue = filterVenue {
+            result = result.filter {
+                (VenueCleaner.clean($0.venue) ?? "")
+                    .compare(venue, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+        }
+        if let tag = filterTag {
+            result = result.filter { session in
+                session.tags.contains {
+                    $0.compare(tag, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+                }
+            }
+        }
         if let from = filterDateFrom {
             let startOfDay = calendar.startOfDay(for: from)
             result = result.filter { $0.date >= startOfDay }
@@ -119,25 +147,109 @@ class SessionStore: ObservableObject {
             (session.venue?.lowercased().contains(search) ?? false) ||
             (session.stakes?.lowercased().contains(search) ?? false) ||
             session.displayVariant.lowercased().contains(search) ||
+            session.displayGameType.lowercased().contains(search) ||
             session.tags.contains(where: { $0.lowercased().contains(search) }) ||
+            session.expenseEntries.contains(where: { $0.label.lowercased().contains(search) }) ||
             session.attachedHands.contains(where: { hand in
                 hand.playerHands.joined(separator: " ").lowercased().contains(search) ||
                 hand.resultSummary.joined(separator: " ").lowercased().contains(search) ||
                 (hand.note?.lowercased().contains(search) ?? false)
-            }) ||
-            session.gameType.rawValue.lowercased().contains(search)
+            })
         }
     }
 
     var hasActiveListFilters: Bool {
         filterGameType != nil ||
+        filterVariant != nil ||
+        filterStakes != nil ||
+        filterVenue != nil ||
+        filterTag != nil ||
         filterDateFrom != nil ||
         filterDateTo != nil ||
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    var hasActiveSessionFilters: Bool {
+        filterGameType != nil ||
+        filterVariant != nil ||
+        filterStakes != nil ||
+        filterVenue != nil ||
+        filterTag != nil ||
+        filterDateFrom != nil ||
+        filterDateTo != nil
+    }
+
+    var activeFilterLabels: [String] {
+        var labels: [String] = []
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+
+        if let gameType = filterGameType {
+            labels.append(gameType.rawValue)
+        }
+        if let variant = filterVariant {
+            labels.append(variant)
+        }
+        if let stakes = filterStakes {
+            labels.append(stakes)
+        }
+        if let venue = filterVenue {
+            labels.append(venue)
+        }
+        if let tag = filterTag {
+            labels.append("#\(tag)")
+        }
+        if let from = filterDateFrom, let to = filterDateTo {
+            labels.append("\(formatter.string(from: from)) - \(formatter.string(from: to))")
+        } else if let from = filterDateFrom {
+            labels.append("From \(formatter.string(from: from))")
+        } else if let to = filterDateTo {
+            labels.append("Until \(formatter.string(from: to))")
+        }
+        return labels
+    }
+
+    var availableVariants: [String] {
+        uniqueCaseInsensitiveStrings(sessions.map(\.displayVariant))
+    }
+
+    var availableStakes: [String] {
+        uniqueCaseInsensitiveStrings(
+            sessions.compactMap { session in
+                let trimmed = session.stakes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        )
+    }
+
+    var availableVenues: [String] {
+        uniqueCaseInsensitiveStrings(
+            sessions.compactMap { session in
+                VenueCleaner.clean(session.venue)
+            }
+        )
+    }
+
+    var availableTags: [String] {
+        uniqueCaseInsensitiveStrings(sessions.flatMap(\.tags))
+    }
+
+    func clearFilters(includeSearch: Bool = false) {
+        filterGameType = nil
+        filterVariant = nil
+        filterStakes = nil
+        filterVenue = nil
+        filterTag = nil
+        filterDateFrom = nil
+        filterDateTo = nil
+        if includeSearch {
+            searchText = ""
+        }
+    }
     
     // MARK: - Core Stats
-    var totalProfit: Double { filteredSessions.reduce(0) { $0 + $1.amount } }
+    var totalProfit: Double { filteredSessions.reduce(0) { $0 + $1.netAmount } }
+    var totalExpenses: Double { filteredSessions.reduce(0) { $0 + $1.totalExpenses } }
     var totalSessions: Int { filteredSessions.count }
     var winCount: Int { filteredSessions.filter { $0.isWin }.count }
     var lossCount: Int { filteredSessions.filter { $0.isLoss }.count }
@@ -159,8 +271,8 @@ class SessionStore: ObservableObject {
         guard totalSessions > 0 else { return 0 }
         return totalProfit / Double(totalSessions)
     }
-    var bestSession: PokerSession? { filteredSessions.max(by: { $0.amount < $1.amount }) }
-    var worstSession: PokerSession? { filteredSessions.min(by: { $0.amount < $1.amount }) }
+    var bestSession: PokerSession? { filteredSessions.max(by: { $0.netAmount < $1.netAmount }) }
+    var worstSession: PokerSession? { filteredSessions.min(by: { $0.netAmount < $1.netAmount }) }
     
     // MARK: - Streaks
     var currentWinStreak: Int {
@@ -221,7 +333,7 @@ class SessionStore: ObservableObject {
 
         return orderedWeekdays.map { weekday in
             let sessions = grouped[weekday] ?? []
-            let total = sessions.reduce(0) { $0 + $1.amount }
+            let total = sessions.reduce(0) { $0 + $1.netAmount }
             let count = sessions.count
             let avg = count > 0 ? total / Double(count) : 0
             return (
@@ -242,7 +354,7 @@ class SessionStore: ObservableObject {
             }
         case .gameType:
             return groupedProfitBreakdown { session in
-                session.gameType.rawValue
+                session.displayGameType
             }
         case .variant:
             return groupedProfitBreakdown { session in
@@ -274,7 +386,7 @@ class SessionStore: ObservableObject {
     
     var sessionsByVariant: [(String, Int, Double)] {
         Dictionary(grouping: filteredSessions, by: { $0.displayVariant })
-            .map { ($0.key, $0.value.count, $0.value.reduce(0) { $0 + $1.amount }) }
+            .map { ($0.key, $0.value.count, $0.value.reduce(0) { $0 + $1.netAmount }) }
             .sorted { $0.1 > $1.1 }
     }
     
@@ -285,7 +397,7 @@ class SessionStore: ObservableObject {
         let grouped = Dictionary(grouping: filteredSessions) { session -> Date in
             calendar.date(from: calendar.dateComponents([.year, .month], from: session.date)) ?? session.date
         }
-        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.amount }) }
+        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.netAmount }) }
             .sorted { $0.0 < $1.0 }
             .map { (formatter.string(from: $0.0), $0.1) }
     }
@@ -296,7 +408,7 @@ class SessionStore: ObservableObject {
         let grouped = Dictionary(grouping: filteredSessions) { session -> Date in
             calendar.date(from: calendar.dateComponents([.year, .month], from: session.date)) ?? session.date
         }
-        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.amount }) }
+        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.netAmount }) }
             .sorted { $0.0 < $1.0 }
     }
     
@@ -365,26 +477,28 @@ class SessionStore: ObservableObject {
         let now = Date()
         return filteredSessions
             .filter { calendar.isDate($0.date, equalTo: now, toGranularity: .month) }
-            .reduce(0) { $0 + $1.amount }
+            .reduce(0) { $0 + $1.netAmount }
     }
     
-    /// Sessions on a given calendar day (uses all sessions, not filtered)
-    func sessions(on date: Date) -> [PokerSession] {
-        sessions.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
+    /// Sessions on a given calendar day.
+    func sessions(on date: Date, respectingFilters: Bool = false) -> [PokerSession] {
+        let source = respectingFilters ? filteredSessions : sessions
+        return source.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
             .sorted { $0.date < $1.date }
     }
     
     /// Total profit for a given calendar day
-    func dailyProfit(on date: Date) -> Double {
-        sessions(on: date).reduce(0) { $0 + $1.amount }
+    func dailyProfit(on date: Date, respectingFilters: Bool = false) -> Double {
+        sessions(on: date, respectingFilters: respectingFilters).reduce(0) { $0 + $1.netAmount }
     }
     
     /// Total profit for a given month
-    func monthlyProfit(for monthStart: Date) -> Double {
+    func monthlyProfit(for monthStart: Date, respectingFilters: Bool = false) -> Double {
         let cal = Calendar.current
-        return sessions
+        let source = respectingFilters ? filteredSessions : sessions
+        return source
             .filter { cal.isDate($0.date, equalTo: monthStart, toGranularity: .month) }
-            .reduce(0) { $0 + $1.amount }
+            .reduce(0) { $0 + $1.netAmount }
     }
     
     // MARK: - Session Numbering (dynamic: earliest = #1, latest = #N)
@@ -439,7 +553,7 @@ class SessionStore: ObservableObject {
             .map { label, sessions in
                 ProfitBreakdownEntry(
                     label: label,
-                    profit: sessions.reduce(0) { $0 + $1.amount },
+                    profit: sessions.reduce(0) { $0 + $1.netAmount },
                     sessions: sessions.count
                 )
             }
@@ -461,10 +575,17 @@ class SessionStore: ObservableObject {
             return value
         }
 
-        var csv = "Date,Game Format,Variant,Amount,Hours,Stakes,Venue,Tags,Notes\n"
+        var csv = "Date,Game Format,Variant,Gross Amount,Total Expenses,Rake,Tips,Food,Travel,Fees,Net Amount,Hours,Stakes,Venue,Tags,Notes\n"
         for s in sessions.sorted(by: { $0.date > $1.date }) {
             let date = ISO8601DateFormatter().string(from: s.date)
-            let amount = PokerSession.formatCurrency(s.amount, currency: currency)
+            let grossAmount = PokerSession.formatCurrency(s.amount, currency: currency)
+            let totalExpenses = PokerSession.formatCurrency(s.totalExpenses, currency: currency)
+            let rake = s.rake.map { PokerSession.formatCurrency($0, currency: currency) } ?? ""
+            let tips = s.tips.map { PokerSession.formatCurrency($0, currency: currency) } ?? ""
+            let food = s.food.map { PokerSession.formatCurrency($0, currency: currency) } ?? ""
+            let travel = s.travel.map { PokerSession.formatCurrency($0, currency: currency) } ?? ""
+            let fees = s.fees.map { PokerSession.formatCurrency($0, currency: currency) } ?? ""
+            let netAmount = PokerSession.formatCurrency(s.netAmount, currency: currency)
             let hours = s.hoursPlayed.map { String($0) } ?? ""
             let stakes = s.stakes ?? ""
             let venue = s.venue ?? ""
@@ -478,9 +599,16 @@ class SessionStore: ObservableObject {
                 .joined(separator: "\n\n")
             let row = [
                 escapeCSV(date),
-                escapeCSV(s.gameType.rawValue),
+                escapeCSV(s.displayGameType),
                 escapeCSV(variant),
-                escapeCSV(amount),
+                escapeCSV(grossAmount),
+                escapeCSV(totalExpenses),
+                escapeCSV(rake),
+                escapeCSV(tips),
+                escapeCSV(food),
+                escapeCSV(travel),
+                escapeCSV(fees),
+                escapeCSV(netAmount),
                 escapeCSV(hours),
                 escapeCSV(stakes),
                 escapeCSV(venue),
@@ -579,7 +707,7 @@ class SessionStore: ObservableObject {
             calendar.startOfDay(for: session.date)
         }
         .map { day, sessions in
-            (day, sessions.reduce(0) { $0 + $1.amount })
+            (day, sessions.reduce(0) { $0 + $1.netAmount })
         }
         .sorted { $0.0 < $1.0 }
     }
@@ -592,17 +720,113 @@ class SessionStore: ObservableObject {
 
     private func sortedSessions(_ source: [PokerSession]) -> [PokerSession] {
         source
-            .map { session in
-                var normalized = session
-                if let calculated = PokerSession.calculatedHours(from: normalized.startTime, to: normalized.endTime),
-                   normalized.hoursPlayed == nil || (normalized.hoursPlayed ?? 0) <= 0 {
-                    normalized.hoursPlayed = calculated
-                }
-                return normalized
-            }
+            .map(normalizedSession(_:))
             .sorted {
                 if $0.date != $1.date { return $0.date > $1.date }
                 return $0.id.uuidString > $1.id.uuidString
             }
+    }
+
+    private func normalizedSession(_ session: PokerSession) -> PokerSession {
+        var normalized = session
+        normalized.rake = normalizedExpense(normalized.rake)
+        normalized.tips = normalizedExpense(normalized.tips)
+        normalized.food = normalizedExpense(normalized.food)
+        normalized.travel = normalizedExpense(normalized.travel)
+        normalized.fees = normalizedExpense(normalized.fees)
+        normalized.variant = normalizedVariant(normalized.variant)
+        normalized.stakes = normalizedStakes(normalized.stakes)
+        normalized.venue = VenueCleaner.clean(normalized.venue)
+        normalized.handNotes = normalizedOptionalText(normalized.handNotes)
+        normalized.notes = normalized.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.tags = normalizedTags(normalized.tags)
+
+        // Legacy PLO sessions should be stored as cash sessions with a PLO variant.
+        if normalized.gameType == .plo {
+            normalized.gameType = .cash
+            if normalized.variant == nil {
+                normalized.variant = PokerVariant.plo.rawValue
+            }
+        }
+
+        if let calculated = PokerSession.calculatedHours(from: normalized.startTime, to: normalized.endTime),
+           normalized.hoursPlayed == nil || (normalized.hoursPlayed ?? 0) <= 0 {
+            normalized.hoursPlayed = calculated
+        }
+        return normalized
+    }
+
+    private func uniqueCaseInsensitiveStrings(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var uniqueValues: [String] = []
+
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            uniqueValues.append(trimmed)
+        }
+
+        return uniqueValues.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func normalizedExpense(_ value: Double?) -> Double? {
+        guard let value else { return nil }
+        let normalized = abs(value)
+        return normalized > 0.0001 ? normalized : nil
+    }
+
+    private func normalizedOptionalText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalizedStakes(_ value: String?) -> String? {
+        guard let trimmed = normalizedOptionalText(value) else { return nil }
+
+        let parts = trimmed
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard parts.count == 2 else { return trimmed }
+        guard stakeComponentHasValue(parts[0]), stakeComponentHasValue(parts[1]) else { return nil }
+        return trimmed
+    }
+
+    private func normalizedVariant(_ value: String?) -> String? {
+        guard let trimmed = normalizedOptionalText(value) else { return nil }
+        if let exact = PokerVariant.allCases.first(where: { $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact.rawValue
+        }
+        return trimmed
+    }
+
+    private func stakeComponentHasValue(_ value: String) -> Bool {
+        let cleaned = value
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "€", with: "")
+            .replacingOccurrences(of: "£", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !cleaned.isEmpty
+    }
+
+    private func normalizedTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+
+        for rawTag in tags {
+            let trimmed = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = SessionTag.allCases.first {
+                $0.rawValue.caseInsensitiveCompare(trimmed) == .orderedSame
+            }?.rawValue ?? trimmed
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            ordered.append(normalized)
+        }
+
+        return ordered
     }
 }

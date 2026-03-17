@@ -10,6 +10,7 @@ struct CalendarView: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @State private var selectedDate: Date?
     @State private var showingAddSession = false
+    @State private var showingFilters = false
     @State private var showingSettings = false
     @State private var scrollPosition: Date?
     @State private var didInitialCenter = false
@@ -29,7 +30,7 @@ struct CalendarView: View {
     private var monthRange: [Date] {
         guard let thisMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return [] }
         let startMonth: Date
-        if let earliest = sessionStore.earliestSessionDate {
+        if let earliest = sessionStore.firstSessionDate ?? sessionStore.earliestSessionDate {
             startMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: earliest)) ?? thisMonth
         } else {
             startMonth = calendar.date(byAdding: .month, value: -12, to: thisMonth) ?? thisMonth
@@ -49,6 +50,9 @@ struct CalendarView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     LazyVStack(spacing: 20) {
+                        if sessionStore.hasActiveSessionFilters {
+                            activeFiltersBar
+                        }
                         ForEach(monthRange, id: \.self) { monthStart in
                             monthBlock(for: monthStart)
                                 .id(monthStart)
@@ -118,6 +122,12 @@ struct CalendarView: View {
                             }
                         }
                         .font(.subheadline.weight(.medium))
+                        Button {
+                            showingFilters = true
+                        } label: {
+                            Image(systemName: sessionStore.hasActiveSessionFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundStyle(AppTheme.accent)
+                        }
                         Button { showingAddSession = true } label: {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(AppTheme.accent)
@@ -129,6 +139,10 @@ struct CalendarView: View {
                 AddSessionView()
                     .presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $showingFilters) {
+                FilterView()
+                    .environmentObject(sessionStore)
+            }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
@@ -136,7 +150,7 @@ struct CalendarView: View {
     }
     
     private func monthBlock(for monthStart: Date) -> some View {
-        let monthlyTotal = sessionStore.monthlyProfit(for: monthStart)
+        let monthlyTotal = sessionStore.monthlyProfit(for: monthStart, respectingFilters: sessionStore.hasActiveSessionFilters)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(monthYearString(from: monthStart))
@@ -164,7 +178,7 @@ struct CalendarView: View {
                             date: date,
                             isSelected: selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false,
                             isToday: calendar.isDateInToday(date),
-                            dailyProfit: sessionStore.dailyProfit(on: date),
+                            dailyProfit: sessionStore.dailyProfit(on: date, respectingFilters: sessionStore.hasActiveSessionFilters),
                             isInDisplayMonth: calendar.isDate(date, equalTo: monthStart, toGranularity: .month),
                             currency: settingsStore.settings.currency,
                             winColor: settingsStore.settings.profitLossColorScheme.winColor,
@@ -188,7 +202,7 @@ struct CalendarView: View {
     
     @ViewBuilder
     private func daySessionsSection(for date: Date) -> some View {
-        let sessionsOnDay = sessionStore.sessions(on: date)
+        let sessionsOnDay = sessionStore.sessions(on: date, respectingFilters: sessionStore.hasActiveSessionFilters)
         
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -251,10 +265,31 @@ struct CalendarView: View {
         formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: date)
     }
+
+    private var activeFiltersBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(sessionStore.activeFilterLabels, id: \.self) { label in
+                    Text(label)
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(AppTheme.cardBackground))
+                }
+
+                Button("Clear") {
+                    sessionStore.clearFilters()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
     
     private func formatShortAmount(_ amount: Double) -> String {
         if amount == 0 { return "" }
-        let prefix = amount > 0 ? "+" : ""
+        let prefix = amount > 0 ? "+" : "-"
         return prefix + PokerSession.formatCompactCurrency(abs(amount), currency: settingsStore.settings.currency)
     }
     
@@ -330,7 +365,8 @@ private struct DayCell: View {
     }
     
     private func formatDailyAmount(_ amount: Double) -> String {
-        PokerSession.formatCompactCurrency(abs(amount), currency: currency)
+        let prefix = amount > 0 ? "+" : "-"
+        return prefix + PokerSession.formatCompactCurrency(abs(amount), currency: currency)
     }
     
     private var dateTextColor: Color {

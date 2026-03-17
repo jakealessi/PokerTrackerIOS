@@ -26,7 +26,7 @@ struct OddsCalculatorView: View {
     @State private var result: EquityResult?
     @State private var isCalculating = false
     @State private var errorMessage: String?
-    @State private var hasChargedCurrentHand = false
+    @State private var lastChargedCalculationSignature: String?
     @State private var pendingAttachedHandForNewSession: PokerSession.AttachedHand?
     @State private var showingQuickAttachNote = false
     @State private var quickAttachNote = ""
@@ -40,6 +40,13 @@ struct OddsCalculatorView: View {
 
     private var canUse: Bool {
         subscriptionStore.isSubscribed || OddsCalculatorUsage.hasFreeUsesRemaining
+    }
+
+    private var premiumCTAButtonTitle: String {
+        if subscriptionStore.proMonthlyProduct?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
+            return "Unlock Premium — Start Free Trial"
+        }
+        return "Unlock Premium"
     }
 
     var body: some View {
@@ -146,7 +153,7 @@ struct OddsCalculatorView: View {
             Button {
                 showingPaywall = true
             } label: {
-                Text("Unlock Premium — 1 Month Free")
+                Text(premiumCTAButtonTitle)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -612,7 +619,7 @@ struct OddsCalculatorView: View {
         switch slot {
         case .hand(let hi, let ci):
             guard hi < numberOfHands else { return }
-            if hands[hi].count == ci {
+            if ci >= hands[hi].count, hands[hi].count < gameType.cardsPerHand {
                 var updatedHands = hands
                 updatedHands[hi] = hands[hi] + [card]
                 hands = updatedHands
@@ -626,7 +633,7 @@ struct OddsCalculatorView: View {
                 didPlace = true
             }
         case .board(let i):
-            if board.count == i {
+            if i >= board.count, board.count < 5 {
                 board = board + [card]
                 didPlace = true
             } else if board.indices.contains(i) {
@@ -636,7 +643,7 @@ struct OddsCalculatorView: View {
                 didPlace = true
             }
         case .dead(let i):
-            if deadCards.count == i {
+            if i >= deadCards.count, deadCards.count < 10 {
                 deadCards = deadCards + [card]
                 didPlace = true
             } else if deadCards.indices.contains(i) {
@@ -710,13 +717,13 @@ struct OddsCalculatorView: View {
             errorMessage = nil
             // When board is incomplete, treat next completed solve as a new chargeable hand.
             if boardCount < 3 {
-                hasChargedCurrentHand = false
+                lastChargedCalculationSignature = nil
             }
         }
 
         // Full reset if user manually clears all cards.
         if hands.allSatisfy({ $0.isEmpty }) && board.isEmpty && deadCards.isEmpty {
-            hasChargedCurrentHand = false
+            lastChargedCalculationSignature = nil
         }
     }
 
@@ -765,7 +772,7 @@ struct OddsCalculatorView: View {
         result = nil
         errorMessage = nil
         isCalculating = false
-        hasChargedCurrentHand = false
+        lastChargedCalculationSignature = nil
         selectedSlot = .hand(0, 0)
     }
 
@@ -792,6 +799,12 @@ struct OddsCalculatorView: View {
         let effectiveDeadCards = deadCards + cardsFromIncompleteHands
         let boardCountAtCalc = board.count
         let isSubscribed = subscriptionStore.isSubscribed
+        let calculationSignature = makeCalculationSignature(
+            gameType: calculationGameType,
+            hands: activeHands,
+            board: calculationBoard,
+            deadCards: effectiveDeadCards
+        )
 
         calculationTask?.cancel()
         calculationTask = Task(priority: .userInitiated) {
@@ -808,15 +821,29 @@ struct OddsCalculatorView: View {
                 isCalculating = false
                 if let r = res {
                     result = r
-                    if !isSubscribed, boardCountAtCalc >= 3, !hasChargedCurrentHand {
+                    if !isSubscribed,
+                       boardCountAtCalc >= 3,
+                       lastChargedCalculationSignature != calculationSignature {
                         OddsCalculatorUsage.consumeOne()
-                        hasChargedCurrentHand = true
+                        lastChargedCalculationSignature = calculationSignature
                     }
                 } else {
                     errorMessage = "Could not calculate. Check for duplicate cards."
                 }
             }
         }
+    }
+
+    private func makeCalculationSignature(
+        gameType: EquityGameType,
+        hands: [[PlayingCard]],
+        board: [PlayingCard],
+        deadCards: [PlayingCard]
+    ) -> String {
+        let handText = hands.map(handString).joined(separator: "|")
+        let boardText = handString(board)
+        let deadText = handString(deadCards)
+        return "\(gameType.cardsPerHand)#\(handText)#\(boardText)#\(deadText)"
     }
 }
 
@@ -882,7 +909,7 @@ private struct AttachHandToSessionSheet: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Text(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency))
+                                    Text(PokerSession.formatCurrency(session.netAmount, currency: settingsStore.settings.currency))
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(
                                             session.isWin

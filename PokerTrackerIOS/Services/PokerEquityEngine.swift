@@ -249,7 +249,8 @@ struct PokerEquityEngine {
 
     func calculate() -> EquityResult? {
         guard board.count <= 5 else { return nil }
-        guard hands.allSatisfy({ $0.isEmpty || $0.count == gameType.cardsPerHand }) else { return nil }
+        guard hands.count >= 2 else { return nil }
+        guard hands.allSatisfy({ $0.count == gameType.cardsPerHand }) else { return nil }
 
         let allKnownCards = hands.flatMap { $0 } + board + deadCards
         let used = Set(allKnownCards)
