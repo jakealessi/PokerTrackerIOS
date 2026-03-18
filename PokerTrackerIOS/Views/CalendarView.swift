@@ -100,17 +100,18 @@ struct CalendarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
-            .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .principal) {
                     Text("Calendar")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 12) {

@@ -21,6 +21,26 @@ enum VenueCleaner {
         }
         return s.isEmpty ? nil : s
     }
+
+    static func key(for venue: String?) -> String? {
+        guard let cleaned = clean(venue) else { return nil }
+        return cleaned
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+    }
+
+    static func normalizedList(_ venues: [String]) -> [String] {
+        var seen = Set<String>()
+        var normalized: [String] = []
+
+        for venue in venues {
+            guard let cleaned = clean(venue), let key = key(for: cleaned) else { continue }
+            guard seen.insert(key).inserted else { continue }
+            normalized.append(cleaned)
+        }
+
+        return normalized
+    }
     
     private static func titleCase(_ s: String) -> String {
         s.split(separator: " ")

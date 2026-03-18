@@ -6,6 +6,45 @@
 import Foundation
 import SwiftUI
 
+struct SupportedCurrency: Identifiable, Hashable {
+    let code: String
+    let name: String
+    let symbol: String
+
+    var id: String { code }
+    var pickerLabel: String { "\(code) - \(name)" }
+
+    static let all: [SupportedCurrency] = [
+        SupportedCurrency(code: "USD", name: "US Dollar", symbol: "$"),
+        SupportedCurrency(code: "EUR", name: "Euro", symbol: "€"),
+        SupportedCurrency(code: "GBP", name: "British Pound", symbol: "£"),
+        SupportedCurrency(code: "CHF", name: "Swiss Franc", symbol: "CHF"),
+        SupportedCurrency(code: "SEK", name: "Swedish Krona", symbol: "kr"),
+        SupportedCurrency(code: "NOK", name: "Norwegian Krone", symbol: "kr"),
+        SupportedCurrency(code: "DKK", name: "Danish Krone", symbol: "kr"),
+        SupportedCurrency(code: "PLN", name: "Polish Zloty", symbol: "zl"),
+        SupportedCurrency(code: "CZK", name: "Czech Koruna", symbol: "Kc"),
+        SupportedCurrency(code: "HUF", name: "Hungarian Forint", symbol: "Ft"),
+        SupportedCurrency(code: "RON", name: "Romanian Leu", symbol: "lei"),
+        SupportedCurrency(code: "TRY", name: "Turkish Lira", symbol: "TL"),
+        SupportedCurrency(code: "JPY", name: "Japanese Yen", symbol: "JP¥"),
+        SupportedCurrency(code: "CNY", name: "Chinese Yuan", symbol: "CN¥"),
+        SupportedCurrency(code: "HKD", name: "Hong Kong Dollar", symbol: "HK$"),
+        SupportedCurrency(code: "SGD", name: "Singapore Dollar", symbol: "SG$"),
+        SupportedCurrency(code: "KRW", name: "South Korean Won", symbol: "₩"),
+        SupportedCurrency(code: "TWD", name: "New Taiwan Dollar", symbol: "NT$"),
+        SupportedCurrency(code: "THB", name: "Thai Baht", symbol: "฿"),
+        SupportedCurrency(code: "INR", name: "Indian Rupee", symbol: "₹"),
+        SupportedCurrency(code: "PHP", name: "Philippine Peso", symbol: "₱"),
+        SupportedCurrency(code: "MYR", name: "Malaysian Ringgit", symbol: "RM"),
+        SupportedCurrency(code: "VND", name: "Vietnamese Dong", symbol: "₫")
+    ]
+
+    static func symbol(for code: String) -> String {
+        all.first(where: { $0.code == code })?.symbol ?? "$"
+    }
+}
+
 /// Win/loss color scheme for accessibility (e.g. colorblind-friendly options)
 enum ProfitLossColorScheme: String, Codable, CaseIterable {
     case `default` = "Default"
@@ -38,6 +77,9 @@ struct AppSettings: Codable {
     var defaultGameType: GameType
     var defaultVariant: String?
     var defaultStakes: String?
+    var enabledStakesPresets: [String]
+    var pinnedVenueOptions: [String]
+    var hiddenVenueOptions: [String]
     var showHourlyRate: Bool
     var hapticFeedback: Bool
     var use24HourTime: Bool
@@ -55,7 +97,7 @@ struct AppSettings: Codable {
 
     enum CodingKeys: String, CodingKey {
         case currency, startingBankroll, defaultGameType
-        case defaultVariant, defaultStakes, showHourlyRate, hapticFeedback
+        case defaultVariant, defaultStakes, enabledStakesPresets, pinnedVenueOptions, hiddenVenueOptions, showHourlyRate, hapticFeedback
         case use24HourTime, useCompactCurrency, showSessionNumbers, confirmBeforeDelete
         case hasSeenOnboarding, geminiAPIKey, openAIAPIKey, profitLossColorScheme
         case workerBaseURL, reminderEnabled
@@ -67,6 +109,9 @@ struct AppSettings: Codable {
         defaultGameType: GameType,
         defaultVariant: String?,
         defaultStakes: String?,
+        enabledStakesPresets: [String],
+        pinnedVenueOptions: [String],
+        hiddenVenueOptions: [String],
         showHourlyRate: Bool,
         hapticFeedback: Bool,
         use24HourTime: Bool,
@@ -85,6 +130,9 @@ struct AppSettings: Codable {
         self.defaultGameType = defaultGameType
         self.defaultVariant = defaultVariant
         self.defaultStakes = defaultStakes
+        self.enabledStakesPresets = Self.normalizedEnabledStakesPresets(enabledStakesPresets)
+        self.pinnedVenueOptions = Self.normalizedVenueOptions(pinnedVenueOptions)
+        self.hiddenVenueOptions = Self.normalizedVenueOptions(hiddenVenueOptions)
         self.showHourlyRate = showHourlyRate
         self.hapticFeedback = hapticFeedback
         self.use24HourTime = use24HourTime
@@ -105,6 +153,9 @@ struct AppSettings: Codable {
         defaultGameType: .cash,
         defaultVariant: PokerVariant.noLimitHoldem.rawValue,
         defaultStakes: nil,
+        enabledStakesPresets: StakesPreset.defaultEnabledRawValues,
+        pinnedVenueOptions: [],
+        hiddenVenueOptions: [],
         showHourlyRate: true,
         hapticFeedback: true,
         use24HourTime: false,
@@ -124,6 +175,15 @@ struct AppSettings: Codable {
         defaultGameType = try c.decodeIfPresent(GameType.self, forKey: .defaultGameType) ?? AppSettings.default.defaultGameType
         defaultVariant = try c.decodeIfPresent(String.self, forKey: .defaultVariant)
         defaultStakes = try c.decodeIfPresent(String.self, forKey: .defaultStakes)
+        enabledStakesPresets = Self.normalizedEnabledStakesPresets(
+            try c.decodeIfPresent([String].self, forKey: .enabledStakesPresets) ?? AppSettings.default.enabledStakesPresets
+        )
+        pinnedVenueOptions = Self.normalizedVenueOptions(
+            try c.decodeIfPresent([String].self, forKey: .pinnedVenueOptions) ?? AppSettings.default.pinnedVenueOptions
+        )
+        hiddenVenueOptions = Self.normalizedVenueOptions(
+            try c.decodeIfPresent([String].self, forKey: .hiddenVenueOptions) ?? AppSettings.default.hiddenVenueOptions
+        )
         showHourlyRate = try c.decodeIfPresent(Bool.self, forKey: .showHourlyRate) ?? AppSettings.default.showHourlyRate
         hapticFeedback = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedback) ?? AppSettings.default.hapticFeedback
         use24HourTime = try c.decodeIfPresent(Bool.self, forKey: .use24HourTime) ?? AppSettings.default.use24HourTime
@@ -145,6 +205,9 @@ struct AppSettings: Codable {
         try c.encode(defaultGameType, forKey: .defaultGameType)
         try c.encodeIfPresent(defaultVariant, forKey: .defaultVariant)
         try c.encodeIfPresent(defaultStakes, forKey: .defaultStakes)
+        try c.encode(Self.normalizedEnabledStakesPresets(enabledStakesPresets), forKey: .enabledStakesPresets)
+        try c.encode(Self.normalizedVenueOptions(pinnedVenueOptions), forKey: .pinnedVenueOptions)
+        try c.encode(Self.normalizedVenueOptions(hiddenVenueOptions), forKey: .hiddenVenueOptions)
         try c.encode(showHourlyRate, forKey: .showHourlyRate)
         try c.encode(hapticFeedback, forKey: .hapticFeedback)
         try c.encode(use24HourTime, forKey: .use24HourTime)
@@ -198,5 +261,13 @@ struct AppSettings: Codable {
 
     func displayTimeRange(from start: Date, to end: Date) -> String {
         "\(displayTime(start)) – \(displayTime(end))"
+    }
+
+    static func normalizedEnabledStakesPresets(_ rawValues: [String]) -> [String] {
+        StakesPreset.normalizedRawValues(rawValues)
+    }
+
+    static func normalizedVenueOptions(_ venues: [String]) -> [String] {
+        VenueCleaner.normalizedList(venues)
     }
 }

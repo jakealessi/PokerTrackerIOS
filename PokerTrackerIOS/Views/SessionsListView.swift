@@ -27,8 +27,8 @@ struct SessionsListView: View {
                             NavigationLink { SessionDetailView(session: session) } label: {
                                 SessionRowView(session: session, displayNumber: sessionStore.displayNumber(for: session), currency: settingsStore.settings.currency)
                             }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
                                     if settingsStore.settings.confirmBeforeDelete {
                                         sessionToDelete = session
                                     } else {
@@ -38,6 +38,7 @@ struct SessionsListView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                                .tint(.red)
                                 Button { sessionToEdit = session } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -66,18 +67,19 @@ struct SessionsListView: View {
             }
             .animation(AppTheme.smoothSpring, value: sessionStore.listSessions.isEmpty)
             .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .principal) {
                     Text("Sessions")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -131,24 +133,22 @@ struct SessionsListView: View {
     private var emptyState: some View {
         let showingNoMatches = sessionStore.hasActiveListFilters && !sessionStore.sessions.isEmpty
 
-        return VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accent.opacity(0.08))
-                    .frame(width: 64, height: 64)
-                Image(systemName: showingNoMatches ? "magnifyingglass" : "list.bullet.rectangle")
-                    .font(.system(size: 24))
-                    .foregroundStyle(AppTheme.accent.opacity(0.5))
-            }
+        return VStack(spacing: 14) {
+            Spacer()
+
+            Image(systemName: showingNoMatches ? "magnifyingglass" : "tray")
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(AppTheme.accent.opacity(0.35))
+
             Text(showingNoMatches ? "No Matching Sessions" : "No Sessions Yet")
-                .font(.title3.weight(.semibold))
+                .font(.headline)
+
             if showingNoMatches {
                 Text("Try clearing your search or filters.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
             } else {
-                Text("Log your first session from the Home tab\nor tap the button below.")
+                Text("Log your first session from the Home tab.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -165,6 +165,9 @@ struct SessionsListView: View {
                 .buttonStyle(.plain)
                 .padding(.top, 4)
             }
+
+            Spacer()
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -278,12 +281,11 @@ struct FilterView: View {
                     if useDateTo { DatePicker("To", selection: $dateTo, displayedComponents: .date) }
                 }
             }
-            .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Filters")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Clear") {

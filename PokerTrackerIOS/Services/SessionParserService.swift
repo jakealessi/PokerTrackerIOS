@@ -33,7 +33,28 @@ enum SessionParserService {
         let location: Int
     }
 
-    private static let numberCapturePattern = #"(\(?[+\-]?\s*\$?[\d,]+(?:\.\d+)?[kKmM]?\)?)"#
+    private static let supportedCurrencySymbols: [String] = Array(Set(SupportedCurrency.all.map { $0.symbol.lowercased() }))
+        .sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs > rhs
+        }
+    private static let supportedCurrencyCodes: [String] = Array(Set(SupportedCurrency.all.map { $0.code.lowercased() }))
+        .sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs > rhs
+        }
+    private static let supportedCurrencyTokens: [String] = Array(Set(supportedCurrencySymbols + supportedCurrencyCodes))
+        .sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs > rhs
+        }
+    private static let optionalCurrencyPrefixPattern: String = {
+        let escapedTokens = supportedCurrencyTokens.map { NSRegularExpression.escapedPattern(for: $0) }
+        return "(?:(?:\(escapedTokens.joined(separator: "|")))\\s*)?"
+    }()
+    private static let stakeComponentPattern = #"(?:\d+(?:\.\d+)?|\.\d+)"#
+    private static let stakesPairPattern = "\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))\\s*[/\\-]\\s*\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))"
+    private static let numberCapturePattern = #"(\(?[+\-]?\s*"# + optionalCurrencyPrefixPattern + #"[\d,]+(?:\.\d+)?[kKmM]?\)?)"#
 
     static func parseNumericValue(from text: String) -> Double? {
         var cleaned = text
@@ -49,14 +70,17 @@ enum SessionParserService {
         cleaned = cleaned
             .replacingOccurrences(of: "(", with: "")
             .replacingOccurrences(of: ")", with: "")
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: "€", with: "")
-            .replacingOccurrences(of: "£", with: "")
             .replacingOccurrences(of: ",", with: "")
-            .replacingOccurrences(of: "usd", with: "")
-            .replacingOccurrences(of: "eur", with: "")
-            .replacingOccurrences(of: "gbp", with: "")
-            .replacingOccurrences(of: " ", with: "")
+
+        for symbol in supportedCurrencySymbols {
+            cleaned = cleaned.replacingOccurrences(of: symbol, with: "")
+        }
+
+        for code in supportedCurrencyCodes {
+            cleaned = cleaned.replacingOccurrences(of: code, with: "")
+        }
+
+        cleaned = cleaned.replacingOccurrences(of: " ", with: "")
 
         var multiplier = 1.0
         if cleaned.hasSuffix("k") {
@@ -115,6 +139,51 @@ enum SessionParserService {
         ]
 
         return words[trimmed]
+    }
+
+    static func parseWholeNumberValue(from text: String) -> Int? {
+        let trimmed = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let numeric = parseNumericValue(from: trimmed) {
+            guard numeric.isFinite,
+                  numeric.rounded(.towardZero) == numeric,
+                  numeric >= Double(Int.min),
+                  numeric <= Double(Int.max) else {
+                return nil
+            }
+            return Int(numeric)
+        }
+
+        let exactOrdinalWords: [String: Int] = [
+            "zero": 0,
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
+            "eleven": 11,
+            "twelve": 12,
+            "first": 1,
+            "second": 2,
+            "third": 3,
+            "fourth": 4,
+            "fifth": 5,
+            "sixth": 6,
+            "seventh": 7,
+            "eighth": 8,
+            "ninth": 9,
+            "tenth": 10,
+            "eleventh": 11,
+            "twelfth": 12
+        ]
+
+        return exactOrdinalWords[trimmed]
     }
 
     static func parseHoursValue(from text: String) -> Double? {
@@ -268,8 +337,8 @@ enum SessionParserService {
 
         appendAmountMatches(
             using: [
-                "(?:^|[\\s,;])(\\+\\s*\\$?[\\d,]+(?:\\.\\d+)?[kKmM]?)\\b",
-                "(?:^|[\\s,;])(\\-\\s*\\$?[\\d,]+(?:\\.\\d+)?[kKmM]?)\\b"
+                "(?:^|[\\s,;])(\\+\\s*\(optionalCurrencyPrefixPattern)[\\d,]+(?:\\.\\d+)?[kKmM]?)\\b",
+                "(?:^|[\\s,;])(\\-\\s*\(optionalCurrencyPrefixPattern)[\\d,]+(?:\\.\\d+)?[kKmM]?)\\b"
             ],
             in: text,
             priority: 100,
@@ -381,8 +450,7 @@ enum SessionParserService {
     // MARK: - Stakes
     
     private static func parseStakes(from text: String) -> String? {
-        let stakesPattern = #"\$?((?:\d+(?:\.\d+)?)|(?:\.\d+))\s*[/\-]\s*\$?((?:\d+(?:\.\d+)?)|(?:\.\d+))"#
-        if let regex = try? NSRegularExpression(pattern: stakesPattern) {
+        if let regex = try? NSRegularExpression(pattern: stakesPairPattern) {
             let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
             for match in matches {
                 guard let r1 = Range(match.range(at: 1), in: text),
@@ -395,7 +463,8 @@ enum SessionParserService {
                 }
                 let smallBlind = normalizeStakeComponent(String(text[r1]))
                 let bigBlind = normalizeStakeComponent(String(text[r2]))
-                return "$\(smallBlind)/$\(bigBlind)"
+                let symbol = resolvedStakeCurrencySymbol(from: fullText) ?? "$"
+                return "\(symbol)\(smallBlind)/\(symbol)\(bigBlind)"
             }
         }
         return nil
@@ -1069,7 +1138,7 @@ enum SessionParserService {
     }
 
     private static func isLikelyStakesExpression(_ value: String, matchRange: NSRange, in text: String) -> Bool {
-        if value.contains("$") {
+        if containsSupportedCurrencyToken(in: value) {
             return true
         }
 
@@ -1136,7 +1205,7 @@ enum SessionParserService {
     }
 
     private static func isLikelySlashDateExpression(_ value: String, matchRange: NSRange, in text: String) -> Bool {
-        guard !value.contains("$"),
+        guard !containsSupportedCurrencyToken(in: value),
               let (first, second) = numericPair(from: value),
               floor(first) == first,
               floor(second) == second,
@@ -1161,7 +1230,7 @@ enum SessionParserService {
     }
 
     private static func isLikelyBareTimeRange(_ value: String, matchRange: NSRange, in text: String) -> Bool {
-        if value.contains("/") || value.contains("$") {
+        if value.contains("/") || containsSupportedCurrencyToken(in: value) {
             return false
         }
 
@@ -1236,8 +1305,7 @@ enum SessionParserService {
     }
 
     private static func numericPair(from value: String) -> (Double, Double)? {
-        let stakesPattern = #"\$?((?:\d+(?:\.\d+)?)|(?:\.\d+))\s*[/\-]\s*\$?((?:\d+(?:\.\d+)?)|(?:\.\d+))"#
-        guard let regex = try? NSRegularExpression(pattern: stakesPattern),
+        guard let regex = try? NSRegularExpression(pattern: stakesPairPattern),
               let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
               let left = extractOptionalMatch(match, at: 1, in: value).flatMap(parseNumericValue(from:)),
               let right = extractOptionalMatch(match, at: 2, in: value).flatMap(parseNumericValue(from:)) else {
@@ -1250,7 +1318,7 @@ enum SessionParserService {
         var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let trailingNoisePatterns = [
             #"\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:to|-|–)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*$"#,
-            #"\s+\$?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+))\s*[/\-]\s*\$?(?:(?:\d+(?:\.\d+)?)|(?:\.\d+))\s*$"#,
+            #"\s+"# + stakesPairPattern + #"\s*$"#,
             #"\s+(?:plo(?:5)?|nlh|hold(?:'em|em|\s+em)|omaha(?:\s+hi[\s-]*lo)?|o8|razz|badugi|stud|tournament|sng)\s*$"#,
             #"\s+(?:today|tonight|yesterday|last\s+night|this\s+(?:morning|afternoon|evening))\s*$"#,
             #"\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?:\s+(?:night|morning|afternoon|evening))?\s*$"#,
@@ -1295,6 +1363,21 @@ enum SessionParserService {
                 #"\bbounty\b"#
             ]
         )
+    }
+
+    private static func containsSupportedCurrencyToken(in value: String) -> Bool {
+        let normalized = value.lowercased()
+        return supportedCurrencyTokens.contains(where: normalized.contains)
+    }
+
+    private static func resolvedStakeCurrencySymbol(from value: String) -> String? {
+        let normalized = value.lowercased()
+        for currency in SupportedCurrency.all {
+            if normalized.contains(currency.symbol.lowercased()) || normalized.contains(currency.code.lowercased()) {
+                return currency.symbol
+            }
+        }
+        return nil
     }
 
     private static func parseCountValue(from text: String) -> Int? {

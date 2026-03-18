@@ -294,9 +294,11 @@ struct SessionDetailView: View {
     
     private var imagesSection: some View {
         let s = currentSession
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Photos")
-                .font(.headline)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("PHOTOS")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
             LazyVGrid(columns: [
                 GridItem(.adaptive(minimum: 100), spacing: 8)
             ], spacing: 8) {
@@ -312,13 +314,10 @@ struct SessionDetailView: View {
                         }
                 }
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.cardBackground)
-        )
     }
     
     private func notesSection(_ notes: String) -> some View {
@@ -352,54 +351,55 @@ struct SessionDetailView: View {
     private var attachedHandsSection: some View {
         let s = currentSession
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Attached Hands")
-                .font(.headline)
-            ForEach(Array(s.attachedHands.enumerated()), id: \.element.id) { index, hand in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Hand \(index + 1) • \(hand.game)")
-                        .font(.subheadline.weight(.semibold))
-                    if !hand.playerHands.isEmpty {
-                        Text(hand.playerHands.joined(separator: " vs "))
-                            .font(.subheadline)
+            Text("ATTACHED HANDS")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
+            VStack(spacing: 8) {
+                ForEach(Array(s.attachedHands.enumerated()), id: \.element.id) { index, hand in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Hand \(index + 1) · \(hand.game)")
+                            .font(.subheadline.weight(.semibold))
+                        if !hand.playerHands.isEmpty {
+                            Text(hand.playerHands.joined(separator: " vs "))
+                                .font(.subheadline)
+                        }
+                        if let board = hand.board, !board.isEmpty {
+                            Text("Board: \(board)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let dead = hand.deadCards, !dead.isEmpty {
+                            Text("Dead: \(dead)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(hand.resultSummary, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let note = hand.note, !note.isEmpty {
+                            Text("Note")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                            Text(note)
+                                .font(.subheadline)
+                        }
                     }
-                    if let board = hand.board, !board.isEmpty {
-                        Text("Board: \(board)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let dead = hand.deadCards, !dead.isEmpty {
-                        Text("Dead: \(dead)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(hand.resultSummary, id: \.self) { line in
-                        Text(line)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let note = hand.note, !note.isEmpty {
-                        Text("Hand Note")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 2)
-                        Text(note)
-                            .font(.subheadline)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
+                            .fill(Color(UIColor.tertiarySystemGroupedBackground))
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(UIColor.secondarySystemGroupedBackground))
-                )
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.cardBackground)
-        )
     }
     
     private struct IndexWrapper: Identifiable {

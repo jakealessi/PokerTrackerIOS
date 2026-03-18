@@ -13,8 +13,10 @@ struct AnalyticsView: View {
     @State private var showingFilters = false
     @State private var showingPaywall = false
     @State private var profitBreakdownDimension: ProfitBreakdownDimension = .venue
+    @State private var hourlyRateBreakdownDimension: HourlyRateBreakdownDimension = .venue
     
     private var currency: String { settingsStore.settings.currency }
+    private var drawdownColor: Color { Color(uiColor: .systemGray) }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
     private var premiumCTAButtonTitle: String {
@@ -50,9 +52,6 @@ struct AnalyticsView: View {
                         if sessionStore.profitOverTime.count >= 2 {
                             profitLineChart
                         }
-                        if sessionStore.drawdownOverTime.count >= 2 {
-                            drawdownChart
-                        }
                         if sessionStore.totalSessions > 0 {
                             winLossChart
                         }
@@ -61,6 +60,12 @@ struct AnalyticsView: View {
                         }
                         if sessionStore.totalSessions > 0 {
                             profitBreakdownChart
+                        }
+                        if sessionStore.totalSessions > 0 {
+                            hourlyRateBreakdownChart
+                        }
+                        if sessionStore.drawdownOverTime.count >= 2 {
+                            drawdownChart
                         }
                     } else {
                         chartsLockedSection
@@ -74,13 +79,12 @@ struct AnalyticsView: View {
                 .id(sessionStore.dataVersion)
             }
             .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Stats")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -105,26 +109,24 @@ struct AnalyticsView: View {
     }
 
     private var chartsLockedSection: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accent.opacity(0.08))
-                    .frame(width: 72, height: 72)
-                Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(AppTheme.accent.opacity(0.5))
-            }
+        VStack(spacing: 14) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(AppTheme.accent.opacity(0.4))
+
             Text("Charts are part of Premium")
-                .font(.title3.weight(.semibold))
-            Text("Subscribe to see cumulative profit, win/loss, monthly results, and profit breakdowns by venue, game type, and more.")
+                .font(.headline)
+
+            Text("Cumulative profit, drawdown, monthly results, hourly rate, and profit breakdowns.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
             Button {
                 showingPaywall = true
             } label: {
                 Text(premiumCTAButtonTitle)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(
@@ -344,7 +346,7 @@ struct AnalyticsView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [lossColor.opacity(0.3), .clear],
+                            colors: [drawdownColor.opacity(0.28), .clear],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -355,7 +357,7 @@ struct AnalyticsView: View {
                         x: .value("Date", point.0, unit: .day),
                         y: .value("Drawdown", point.1)
                     )
-                    .foregroundStyle(lossColor)
+                    .foregroundStyle(drawdownColor)
                     .interpolationMethod(.stepEnd)
                 }
                 RuleMark(y: .value("Zero", 0))
@@ -517,6 +519,98 @@ struct AnalyticsView: View {
         .padding()
         .cardStyle()
     }
+
+    // MARK: - Hourly Rate Breakdown
+
+    private var hourlyRateBreakdownChart: some View {
+        let data = sessionStore.hourlyRateBreakdown(for: hourlyRateBreakdownDimension)
+        let totalSessions = data.reduce(0) { $0 + $1.sessions }
+        let totalHours = data.reduce(0) { $0 + $1.totalHours }
+        let bestEntry = data.max { lhs, rhs in
+            if lhs.hourlyRate != rhs.hourlyRate { return lhs.hourlyRate < rhs.hourlyRate }
+            if lhs.totalHours != rhs.totalHours { return lhs.totalHours < rhs.totalHours }
+            if lhs.sessions != rhs.sessions { return lhs.sessions < rhs.sessions }
+            return lhs.label > rhs.label
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Hourly Rate Breakdown")
+                        .font(.headline)
+                    Text("By \(hourlyRateBreakdownDimension.rawValue)")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+
+                Spacer()
+
+                Picker("Hourly Rate Breakdown", selection: $hourlyRateBreakdownDimension) {
+                    ForEach(HourlyRateBreakdownDimension.allCases) { dimension in
+                        Text(dimension.rawValue).tag(dimension)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            if data.isEmpty {
+                Text(hourlyRateBreakdownEmptyStateText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Chart {
+                    RuleMark(x: .value("Zero", 0))
+                        .foregroundStyle(AppTheme.secondaryText.opacity(0.3))
+                        .lineStyle(StrokeStyle(dash: [5, 5]))
+
+                    ForEach(data) { entry in
+                        BarMark(
+                            x: .value("Hourly Rate", entry.hourlyRate),
+                            y: .value("Category", entry.label)
+                        )
+                        .foregroundStyle(entry.hourlyRate >= 0 ? winColor : lossColor)
+                        .cornerRadius(5)
+                    }
+                }
+                .frame(height: profitBreakdownChartHeight(for: data.count))
+                .chartXScale(domain: hourlyRateDomain(for: data))
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let hourlyRate = value.as(Double.self) {
+                                Text(shortCurrency(hourlyRate))
+                                    .font(.caption2)
+                            }
+                        }
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisValueLabel {
+                            if let label = value.as(String.self) {
+                                Text(label)
+                                    .font(.caption2)
+                            }
+                        }
+                    }
+                }
+
+                if let bestEntry {
+                    Text("\(totalSessions) \(hourlyRateBreakdownSessionLabel) • \(formattedHours(totalHours)) hours • \(bestCategoryPrefix) \(bestEntry.label) at \(formattedHourlyRate(bestEntry.hourlyRate)) over \(formattedHours(bestEntry.totalHours)) hours")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                } else {
+                    Text("\(totalSessions) \(hourlyRateBreakdownSessionLabel) • \(formattedHours(totalHours)) hours")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+            }
+        }
+        .padding()
+        .cardStyle()
+    }
     
     // MARK: - Detail Stats
     
@@ -562,6 +656,66 @@ struct AnalyticsView: View {
     
     private func shortCurrency(_ value: Double) -> String {
         settingsStore.settings.displayAmount(value, compact: true, includePositiveSign: false)
+    }
+
+    private func formattedHourlyRate(_ value: Double) -> String {
+        settingsStore.settings.displayAmount(value, compact: false, includePositiveSign: false) + "/hr"
+    }
+
+    private func formattedHours(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+
+    private func hourlyRateDomain(for data: [HourlyRateBreakdownEntry]) -> ClosedRange<Double> {
+        let values = data.map(\.hourlyRate)
+        guard let minValue = values.min(), let maxValue = values.max() else { return -1...1 }
+        if minValue == 0, maxValue == 0 { return -1...1 }
+
+        let span = maxValue - minValue
+        let magnitude = max(abs(minValue), abs(maxValue))
+        let padding = max(span * 0.1, magnitude * 0.1, 0.5)
+
+        if minValue >= 0 {
+            return 0...(maxValue + padding)
+        }
+        if maxValue <= 0 {
+            return (minValue - padding)...0
+        }
+        return (minValue - padding)...(maxValue + padding)
+    }
+
+    private var hourlyRateBreakdownEmptyStateText: String {
+        switch hourlyRateBreakdownDimension {
+        case .venue:
+            return "No venue data with logged hours in this range yet."
+        case .gameType:
+            return "No game type data with logged hours in this range yet."
+        case .variant:
+            return "No variant data with logged hours in this range yet."
+        case .stakes:
+            return "No stakes data with logged hours in this range yet."
+        case .weekday:
+            return "No weekday data with logged hours in this range yet."
+        }
+    }
+
+    private var hourlyRateBreakdownSessionLabel: String {
+        "sessions with hours"
+    }
+
+    private var bestCategoryPrefix: String {
+        switch hourlyRateBreakdownDimension {
+        case .venue:
+            return "Best venue:"
+        case .gameType:
+            return "Best game type:"
+        case .variant:
+            return "Best variant:"
+        case .stakes:
+            return "Best stakes:"
+        case .weekday:
+            return "Best weekday:"
+        }
     }
 
     private func profitBreakdownChartHeight(for count: Int) -> CGFloat {
@@ -624,12 +778,11 @@ struct StatsDateRangeSheet: View {
                     }
                 }
             }
-            .navigationTitle("Date range")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("Date range")
-                        .font(.headline)
+                    Text("Date Range")
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

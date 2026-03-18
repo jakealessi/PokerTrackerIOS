@@ -101,9 +101,9 @@ struct SessionRowView: View {
                                     Image(systemName: t.icon)
                                     Text(t.rawValue)
                                 }
-                                .font(.system(size: 9, weight: .medium))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2.5)
+                                .font(.system(size: 10, weight: .medium))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
                                 .background(t.color.opacity(0.12))
                                 .foregroundStyle(t.color)
                                 .clipShape(Capsule())
@@ -111,7 +111,7 @@ struct SessionRowView: View {
                         }
                         if session.tags.count > 3 {
                             Text("+\(session.tags.count - 3)")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.tertiary)
                         }
                     }

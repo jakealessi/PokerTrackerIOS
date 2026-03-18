@@ -104,18 +104,18 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(UIColor.systemGroupedBackground))
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
-            .navigationTitle("Poker Bankroll AI")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
+                            .font(.body)
                             .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .principal) {
                     Text("Poker Bankroll AI")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingAddSession = true } label: {
@@ -152,67 +152,69 @@ struct DashboardView: View {
     
     private var statsHeader: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Bankroll")
-                        .font(.caption2.weight(.semibold))
+                    Text("BANKROLL")
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .kerning(0.5)
+                        .kerning(0.8)
                     Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
                         .contentTransition(.numericText())
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(dashboardMetrics) { metric in
-                            metricChip(metric)
-                        }
-                    }
-                    .padding(.horizontal, 1)
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("PROFIT")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .kerning(0.8)
+                    Text(PokerSession.formatCurrency(allSessionsProfit, currency: settingsStore.settings.currency))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(allSessionsProfit >= 0 ? winColor : lossColor)
+                        .monospacedDigit()
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
-                    .fill(AppTheme.cardBackground)
-                    .shadow(color: AppTheme.subtleShadow.color, radius: AppTheme.subtleShadow.radius, y: AppTheme.subtleShadow.y)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.smallCornerRadius, style: .continuous)
-                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-            )
-            .padding(.horizontal)
+
+            Divider()
+                .padding(.vertical, 10)
+
+            HStack(spacing: 0) {
+                ForEach(Array(dashboardMetrics.enumerated()), id: \.element.id) { index, metric in
+                    if index > 0 {
+                        Spacer()
+                    }
+                    metricColumn(metric)
+                    if index < dashboardMetrics.count - 1 {
+                        Spacer()
+                    }
+                }
+            }
         }
-        .padding(.top, 2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                .fill(AppTheme.cardBackground)
+                .shadow(color: AppTheme.subtleShadow.color, radius: AppTheme.subtleShadow.radius, y: AppTheme.subtleShadow.y)
+        )
+        .padding(.horizontal)
+        .padding(.top, 4)
         .padding(.bottom, 8)
     }
 
-    private func metricChip(_ metric: DashboardMetric) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(metric.label.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.tertiary)
-                .kerning(0.5)
+    private func metricColumn(_ metric: DashboardMetric) -> some View {
+        VStack(spacing: 3) {
             Text(metric.value)
                 .font(.system(.subheadline, design: .rounded).weight(.bold))
                 .foregroundStyle(metric.tint)
                 .monospacedDigit()
+            Text(metric.label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
         }
-        .frame(minWidth: 74, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(metric.tint.opacity(0.14), lineWidth: 1)
-        )
     }
     
     // MARK: - Chat Area
@@ -264,33 +266,38 @@ struct DashboardView: View {
     }
     
     private var emptyPrompt: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
 
-            VStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accent.opacity(0.08))
-                        .frame(width: 72, height: 72)
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(AppTheme.accent.opacity(0.5))
-                }
+            Image(systemName: "bubble.left.and.text.bubble.right")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(AppTheme.accent.opacity(0.35))
 
+            VStack(spacing: 6) {
                 Text("Log a Session")
-                    .font(.title3.weight(.semibold))
+                    .font(.headline)
 
-                Text("Describe your session and AI will log it.\nTry \"Won $200 at 1/2 NLH for 4 hours\"")
+                Text("Describe your session below and AI will log it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-                    .padding(.horizontal, 32)
             }
 
+            Text("\"Won $200 at 1/2 NLH for 4 hours\"")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(AppTheme.accent.opacity(0.7))
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(AppTheme.accent.opacity(0.06))
+                )
+
+            Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
     }
     
     private func chatBubble(_ message: ChatMessage) -> some View {
@@ -322,21 +329,15 @@ struct DashboardView: View {
         Text(message.text)
             .font(.body)
             .foregroundStyle(message.role == .user ? .white : .primary)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
                 message.role == .user
-                ? AnyShapeStyle(
-                    LinearGradient(
-                        colors: [AppTheme.accent, AppTheme.accent.opacity(0.85)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                ? AnyShapeStyle(AppTheme.accent)
                 : AnyShapeStyle(AppTheme.cardBackground)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(message.role == .user ? 0.08 : 0.04), radius: 3, y: 1)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(message.role == .user ? 0.06 : 0.03), radius: 3, y: 1)
     }
 
     private func assistantSessionCard(_ payload: ChatMessage.SessionCard, session: PokerSession) -> some View {
@@ -346,78 +347,75 @@ struct DashboardView: View {
             return .secondary
         }()
 
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Label(payload.headline, systemImage: payload.systemImage)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: payload.systemImage)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.accent)
+                Text(payload.headline)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.accent)
-                    .lineLimit(2)
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
 
                 Button {
                     chatEditSession = sessionStore.sessions.first(where: { $0.id == session.id }) ?? session
                 } label: {
-                    Label("Edit", systemImage: "pencil")
+                    Text("Edit")
                         .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(AppTheme.accent.opacity(0.1))
+                        )
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(AppTheme.accent)
+                .buttonStyle(.plain)
             }
 
             Text(PokerSession.formatCurrency(session.netAmount, currency: settingsStore.settings.currency))
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(sessionTint)
                 .monospacedDigit()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(sessionCardPrimaryMeta(session))
-                    .font(.subheadline.weight(.medium))
+            Text(sessionCardPrimaryMeta(session))
+                .font(.subheadline.weight(.medium))
 
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                        .font(.caption)
-                    Text(session.date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption)
-                }
-                .foregroundStyle(.secondary)
-
+            HStack(spacing: 14) {
+                Label(session.date.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
                 if let venue = session.venue, !venue.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "mappin.and.ellipse")
-                            .font(.caption)
-                        Text(venue)
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
+                    Label(venue, systemImage: "mappin")
                 }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 4) {
-                if session.hasExpenses {
-                    Text("Gross \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency)) • Expenses \(PokerSession.formatCurrency(session.totalExpenses, currency: settingsStore.settings.currency))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let detail = payload.detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            if session.hasExpenses || (payload.detail != nil && !payload.detail!.isEmpty) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if session.hasExpenses {
+                        Text("Gross \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency)) · Expenses \(PokerSession.formatCurrency(session.totalExpenses, currency: settingsStore.settings.currency))")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if let detail = payload.detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(AppTheme.cardBackground)
-                .shadow(color: .black.opacity(0.04), radius: 4, y: 1)
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(sessionTint.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(sessionTint.opacity(0.1), lineWidth: 0.5)
         )
     }
 
@@ -440,29 +438,32 @@ struct DashboardView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
             }
 
             if !subscriptionStore.isSubscribed && AISessionCrafterUsage.usesRemaining < AISessionCrafterUsage.freeUseLimit {
-                HStack {
-                    Text("\(AISessionCrafterUsage.usesRemaining) of \(AISessionCrafterUsage.freeUseLimit) free AI uses left")
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.accent)
+                    Text("\(AISessionCrafterUsage.usesRemaining) of \(AISessionCrafterUsage.freeUseLimit) free uses left")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     if AISessionCrafterUsage.usesRemaining == 0 {
-                        Button("Unlock unlimited") { showingPaywall = true }
-                            .font(.caption.weight(.medium))
+                        Button("Upgrade") { showingPaywall = true }
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(AppTheme.accent)
                     }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 6)
             }
 
             Divider()
             
-            HStack(spacing: 10) {
+            HStack(alignment: .bottom, spacing: 8) {
                 if !chatMessages.isEmpty {
                     Button {
                         aiTask?.cancel()
@@ -473,53 +474,78 @@ struct DashboardView: View {
                             isAILoading = false
                         }
                     } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.body.weight(.medium))
+                        Image(systemName: "plus.message")
+                            .font(.system(size: 20, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
-                }
-                
-                if inputFocused {
-                    Button {
-                        inputFocused = false
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
+                    .padding(.bottom, 6)
                 }
                 
                 TextField("Log a session...", text: $inputText, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .fill(AppTheme.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                            )
                     )
                     .focused($inputFocused)
                 
+                if inputFocused {
+                    Button {
+                        inputFocused = false
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle()
+                                    .fill(AppTheme.cardBackground)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                                    )
+                            )
+                    }
+                    .accessibilityLabel("Done")
+                    .transition(.opacity.combined(with: .scale))
+                }
+
                 Button {
                     sendMessage()
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .symbolRenderingMode(.hierarchical)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(
                             inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading
-                            ? Color.gray.opacity(0.5) : AppTheme.accent
+                            ? Color.secondary.opacity(0.65) : .white
+                        )
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle()
+                                .fill(
+                                    inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading
+                                    ? Color(UIColor.systemGray5) : AppTheme.accent
+                                )
                         )
                 }
                 .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAILoading)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .animation(AppTheme.smoothSpring, value: inputFocused)
         }
     }
     
     // MARK: - Send & AI Logic
     
+    @MainActor
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -539,6 +565,7 @@ struct DashboardView: View {
         aiTask = Task { await processWithAI() }
     }
     
+    @MainActor
     private func processWithAI() async {
         defer { isAILoading = false }
         guard !Task.isCancelled else { return }
@@ -628,6 +655,7 @@ struct DashboardView: View {
         }
     }
     
+    @MainActor
     private func handleComplete(_ parsed: ParsedSession, usedOfflineParser: Bool) {
         guard AISessionService.isLoggable(parsed) else {
             withAnimation(AppTheme.smoothSpring) {

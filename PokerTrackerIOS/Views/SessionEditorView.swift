@@ -29,6 +29,7 @@ struct SessionEditorView: View {
     @State private var didPerformInitialAutofill = false
     @State private var transientEditImageIDs: Set<String> = []
     @State private var disabledAutoTimeFields: Set<SessionEditorTimeField> = []
+    @State private var showingOddsCalculator = false
 
     private let mode: SessionEditorMode
     private let calendar = Calendar.current
@@ -155,6 +156,9 @@ struct SessionEditorView: View {
             .onDisappear {
                 cleanupUnsavedImages()
             }
+            .sheet(isPresented: $showingOddsCalculator) {
+                OddsCalculatorView(onHandCreated: addAttachedHandToDraft)
+            }
         }
     }
 
@@ -278,6 +282,10 @@ struct SessionEditorView: View {
                 }
 
                 TextField("Venue", text: $draft.venue)
+
+                if !venueQuickOptions.isEmpty {
+                    venueQuickButtons
+                }
             }
         }
     }
@@ -296,9 +304,9 @@ struct SessionEditorView: View {
                 TextField(mode.cashOutLabel, text: $draft.cashOut)
                     .keyboardType(.numbersAndPunctuation)
                 TextField(mode.tournamentPositionLabel, text: $draft.tournamentPosition)
-                    .keyboardType(.numbersAndPunctuation)
+                    .keyboardType(.numberPad)
                 TextField("Rebuys", text: $draft.rebuys)
-                    .keyboardType(.numbersAndPunctuation)
+                    .keyboardType(.numberPad)
             }
         }
     }
@@ -364,13 +372,25 @@ struct SessionEditorView: View {
             )
             if draft.showAttachments {
                 if !draft.attachedHands.isEmpty {
-                    AttachedHandsPreviewList(hands: draft.attachedHands)
+                    AttachedHandsPreviewList(
+                        hands: draft.attachedHands,
+                        onRemove: removeAttachedHandFromDraft
+                    )
                 }
                 ImageAttachmentsSection(
                     imageIds: $draft.imageIds,
                     deleteOnRemove: mode.deleteImagesOnRemove,
                     wrapInSection: false
                 )
+                Button {
+                    showingOddsCalculator = true
+                } label: {
+                    Label("Add Hand", systemImage: "percent")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(AppTheme.accent)
             }
         }
     }
@@ -383,14 +403,24 @@ struct SessionEditorView: View {
                 StakesInputView(stakes: $draft.stakes, currency: settingsStore.settings.currency)
                     .frame(maxWidth: 120)
             }
-            stakesPresetButtons
+            if !enabledStakesPresets.isEmpty {
+                stakesPresetButtons
+            }
         }
+    }
+
+    private var enabledStakesPresets: [StakesPreset] {
+        StakesPreset.enabledPresets(from: settingsStore.settings.enabledStakesPresets)
+    }
+
+    private var venueQuickOptions: [VenueQuickOption] {
+        sessionStore.venueQuickOptions(using: settingsStore.settings)
     }
 
     private var stakesPresetButtons: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(StakesPreset.allCases, id: \.self) { preset in
+                ForEach(enabledStakesPresets, id: \.self) { preset in
                     Button {
                         draft.stakes = preset.storedValue(currency: settingsStore.settings.currency)
                         HapticManager.lightTap()
@@ -416,6 +446,35 @@ struct SessionEditorView: View {
             }
             .padding(.horizontal, 4)
         }
+    }
+
+    private var venueQuickButtons: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(venueQuickOptions) { option in
+                Button {
+                    draft.venue = option.venue
+                    HapticManager.lightTap()
+                } label: {
+                    Text(option.venue)
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            isSelectedVenueQuickOption(option)
+                                ? AppTheme.accent.opacity(0.3)
+                                : AppTheme.cardBackground
+                        )
+                        .foregroundStyle(
+                            isSelectedVenueQuickOption(option)
+                                ? .white
+                                : .primary
+                        )
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 4)
     }
 
     private var sessionDetailsSummary: String {
@@ -578,6 +637,22 @@ struct SessionEditorView: View {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func isSelectedVenueQuickOption(_ option: VenueQuickOption) -> Bool {
+        VenueCleaner.key(for: draft.venue) == VenueCleaner.key(for: option.venue)
+    }
+
+    private func addAttachedHandToDraft(_ hand: PokerSession.AttachedHand) {
+        draft.attachedHands.append(hand)
+        draft.showAttachments = true
+        HapticManager.lightTap()
+    }
+
+    private func removeAttachedHandFromDraft(_ handID: UUID) {
+        draft.attachedHands.removeAll { $0.id == handID }
+        draft.showAttachments = !draft.imageIds.isEmpty || !draft.attachedHands.isEmpty
+        HapticManager.lightTap()
+    }
+
     private func parsedUnsignedCurrency(_ value: String) -> Double? {
         guard let amount = SessionParserService.parseNumericValue(from: value) else { return nil }
         return abs(amount)
@@ -603,7 +678,7 @@ struct SessionEditorView: View {
     private func parsedWholeNumber(_ value: String) -> Int? {
         let cleaned = trimmed(value)
         guard !cleaned.isEmpty else { return nil }
-        return SessionParserService.parseOrdinalValue(from: cleaned)
+        return SessionParserService.parseWholeNumberValue(from: cleaned)
     }
 
     private func autoPopulateMissingTimeFields() {
@@ -939,12 +1014,23 @@ private struct SessionCurrencyInputRow: View {
 
 private struct AttachedHandsPreviewList: View {
     let hands: [PokerSession.AttachedHand]
+    let onRemove: (UUID) -> Void
 
     var body: some View {
         ForEach(hands) { hand in
             VStack(alignment: .leading, spacing: 4) {
-                Text(hand.game)
-                    .font(.subheadline.weight(.semibold))
+                HStack(alignment: .top, spacing: 12) {
+                    Text(hand.game)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button(role: .destructive) {
+                        onRemove(hand.id)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                }
                 Text(hand.playerHands.joined(separator: " vs "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1058,8 +1144,14 @@ private struct StakesInputView: View {
 
     private func parseStakes(_ stakes: String) -> (String, String) {
         var cleaned = stakes
-        for symbol in ["$", "€", "£"] {
-            cleaned = cleaned.replacingOccurrences(of: symbol, with: "")
+        let symbols = Set(SupportedCurrency.all.map(\.symbol))
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs > rhs
+            }
+
+        for symbol in symbols {
+            cleaned = cleaned.replacingOccurrences(of: symbol, with: "", options: [.caseInsensitive])
         }
 
         let parts = cleaned.split(separator: "/").map(String.init)

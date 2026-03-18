@@ -254,13 +254,13 @@ struct PokerSession: Identifiable, Codable, Equatable {
         formatter.currencyCode = currency
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? "$\(String(format: "%.2f", value))"
+        return formatter.string(from: NSNumber(value: value)) ?? "\(SupportedCurrency.symbol(for: currency))\(String(format: "%.2f", value))"
     }
     
     /// Compact format for calendars: <$100 shows 1 decimal if cents, $100–999 integer if whole, $1000+ uses K
     static func formatCompactCurrency(_ value: Double, currency: String = "USD") -> String {
         let absVal = abs(value)
-        let symbol = currencySymbol(for: currency)
+        let symbol = SupportedCurrency.symbol(for: currency)
         let hasCents = absVal != floor(absVal)
         if absVal < 100 {
             return hasCents ? "\(symbol)\(String(format: "%.1f", absVal))" : "\(symbol)\(Int(absVal))"
@@ -269,15 +269,6 @@ struct PokerSession: Identifiable, Codable, Equatable {
         } else {
             let k = absVal / 1000
             return k == floor(k) ? "\(symbol)\(Int(k))K" : "\(symbol)\(String(format: "%.1f", k))K"
-        }
-    }
-    
-    private static func currencySymbol(for code: String) -> String {
-        switch code {
-        case "USD": return "$"
-        case "EUR": return "€"
-        case "GBP": return "£"
-        default: return "$"
         }
     }
 }
@@ -412,15 +403,23 @@ enum StakesPreset: String, CaseIterable {
     case mid1 = "2/5"
     case mid2 = "5/10"
     case high = "10/20"
+
+    static var defaultEnabledRawValues: [String] {
+        allCases.map(\.rawValue)
+    }
+
+    static func enabledPresets(from rawValues: [String]) -> [StakesPreset] {
+        let enabledValues = Set(rawValues)
+        return allCases.filter { enabledValues.contains($0.rawValue) }
+    }
+
+    static func normalizedRawValues(_ rawValues: [String]) -> [String] {
+        enabledPresets(from: rawValues).map(\.rawValue)
+    }
     
-    /// Symbol for currency code (USD->$, EUR->€, GBP->£)
+    /// Symbol for the active currency in stake quick picks.
     static func symbol(for currency: String) -> String {
-        switch currency {
-        case "USD": return "$"
-        case "EUR": return "€"
-        case "GBP": return "£"
-        default: return "$"
-        }
+        SupportedCurrency.symbol(for: currency)
     }
     
     /// Stored value with currency symbol: X/Y format

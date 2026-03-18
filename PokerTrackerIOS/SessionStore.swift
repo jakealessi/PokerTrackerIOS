@@ -16,6 +16,16 @@ enum ProfitBreakdownDimension: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum HourlyRateBreakdownDimension: String, CaseIterable, Identifiable {
+    case venue = "Venue"
+    case gameType = "Game Type"
+    case variant = "Variant"
+    case stakes = "Stakes"
+    case weekday = "Weekday"
+
+    var id: String { rawValue }
+}
+
 struct ProfitBreakdownEntry: Identifiable, Equatable {
     let label: String
     let profit: Double
@@ -24,7 +34,40 @@ struct ProfitBreakdownEntry: Identifiable, Equatable {
     var id: String { label }
 }
 
+struct HourlyRateBreakdownEntry: Identifiable, Equatable {
+    let label: String
+    let totalProfit: Double
+    let totalHours: Double
+    let sessions: Int
+
+    var id: String { label }
+
+    var hourlyRate: Double {
+        guard totalHours > 0 else { return 0 }
+        return totalProfit / totalHours
+    }
+}
+
+struct VenueQuickOption: Identifiable, Equatable {
+    enum Source: Equatable {
+        case manual
+        case automatic(sessionCount: Int)
+    }
+
+    let venue: String
+    let source: Source
+
+    var id: String { VenueCleaner.key(for: venue) ?? venue }
+}
+
 class SessionStore: ObservableObject {
+    static let automaticVenueQuickOptionThreshold = 3
+    private static let supportedCurrencySymbolsForStakes: [String] = Array(Set(SupportedCurrency.all.map(\.symbol)))
+        .sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs > rhs
+        }
+
     struct SessionsBackup: Codable {
         let version: Int
         let exportedAt: Date
@@ -230,6 +273,40 @@ class SessionStore: ObservableObject {
         )
     }
 
+    var venueSessionCounts: [(venue: String, sessions: Int)] {
+        Dictionary(grouping: sessions) { session in
+            VenueCleaner.clean(session.venue)
+        }
+        .compactMap { venue, sessions -> (venue: String, sessions: Int)? in
+            guard let venue else { return nil }
+            return (venue: venue, sessions: sessions.count)
+        }
+        .sorted { lhs, rhs in
+            if lhs.sessions != rhs.sessions { return lhs.sessions > rhs.sessions }
+            return lhs.venue.localizedCaseInsensitiveCompare(rhs.venue) == .orderedAscending
+        }
+    }
+
+    func venueQuickOptions(using settings: AppSettings) -> [VenueQuickOption] {
+        let manualVenues = AppSettings.normalizedVenueOptions(settings.pinnedVenueOptions)
+        let hiddenKeys = Set(settings.hiddenVenueOptions.compactMap { VenueCleaner.key(for: $0) })
+        let manualKeys = Set(manualVenues.compactMap { VenueCleaner.key(for: $0) })
+
+        var options = manualVenues.map { venue in
+            VenueQuickOption(venue: venue, source: .manual)
+        }
+
+        let automaticOptions = venueSessionCounts.compactMap { entry -> VenueQuickOption? in
+            guard entry.sessions >= Self.automaticVenueQuickOptionThreshold else { return nil }
+            guard let key = VenueCleaner.key(for: entry.venue) else { return nil }
+            guard !hiddenKeys.contains(key), !manualKeys.contains(key) else { return nil }
+            return VenueQuickOption(venue: entry.venue, source: .automatic(sessionCount: entry.sessions))
+        }
+
+        options.append(contentsOf: automaticOptions)
+        return options
+    }
+
     var availableTags: [String] {
         uniqueCaseInsensitiveStrings(sessions.flatMap(\.tags))
     }
@@ -343,6 +420,49 @@ class SessionStore: ObservableObject {
                 sessions: count,
                 total: total
             )
+        }
+    }
+
+    func hourlyRateBreakdown(for dimension: HourlyRateBreakdownDimension) -> [HourlyRateBreakdownEntry] {
+        let sessionsWithHours = filteredSessions.filter { session in
+            guard let hours = session.hoursPlayed else { return false }
+            return hours > 0
+        }
+
+        switch dimension {
+        case .venue:
+            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+                VenueCleaner.clean(session.venue) ?? "Unknown Venue"
+            }
+        case .gameType:
+            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+                session.displayGameType
+            }
+        case .variant:
+            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+                PokerSession.abbreviation(for: session.displayVariant)
+            }
+        case .stakes:
+            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+                let trimmed = session.stakes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? "Unknown Stakes" : trimmed
+            }
+        case .weekday:
+            let cal = Calendar.current
+            let grouped = Dictionary(grouping: sessionsWithHours) { session in
+                cal.component(.weekday, from: session.date)
+            }
+
+            let symbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            let orderedWeekdays = (0..<7).map { offset in
+                ((cal.firstWeekday - 1 + offset) % 7) + 1
+            }
+
+            return orderedWeekdays.compactMap { weekday in
+                let sessions = grouped[weekday] ?? []
+                guard !sessions.isEmpty else { return nil }
+                return makeHourlyRateBreakdownEntry(label: symbols[weekday - 1], sessions: sessions)
+            }
         }
     }
 
@@ -566,6 +686,36 @@ class SessionStore: ObservableObject {
                 if lhs.sessions != rhs.sessions { return lhs.sessions > rhs.sessions }
                 return lhs.label < rhs.label
             }
+    }
+
+    private func groupedHourlyRateBreakdown(
+        from sessions: [PokerSession],
+        _ labelForSession: (PokerSession) -> String
+    ) -> [HourlyRateBreakdownEntry] {
+        Dictionary(grouping: sessions, by: labelForSession)
+            .map { label, sessions in
+                makeHourlyRateBreakdownEntry(label: label, sessions: sessions)
+            }
+            .sorted { lhs, rhs in
+                if lhs.hourlyRate != rhs.hourlyRate { return lhs.hourlyRate > rhs.hourlyRate }
+                if lhs.totalHours != rhs.totalHours { return lhs.totalHours > rhs.totalHours }
+                if lhs.sessions != rhs.sessions { return lhs.sessions > rhs.sessions }
+                return lhs.label < rhs.label
+            }
+    }
+
+    private func makeHourlyRateBreakdownEntry(
+        label: String,
+        sessions: [PokerSession]
+    ) -> HourlyRateBreakdownEntry {
+        let totalProfit = sessions.reduce(0) { $0 + $1.netAmount }
+        let totalHours = sessions.compactMap(\.hoursPlayed).reduce(0, +)
+        return HourlyRateBreakdownEntry(
+            label: label,
+            totalProfit: totalProfit,
+            totalHours: totalHours,
+            sessions: sessions.count
+        )
     }
     
     
@@ -827,11 +977,11 @@ class SessionStore: ObservableObject {
     }
 
     private func stakeComponentHasValue(_ value: String) -> Bool {
-        let cleaned = value
-            .replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: "€", with: "")
-            .replacingOccurrences(of: "£", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var cleaned = value
+        for symbol in Self.supportedCurrencySymbolsForStakes {
+            cleaned = cleaned.replacingOccurrences(of: symbol, with: "", options: [.caseInsensitive])
+        }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         return !cleaned.isEmpty
     }
 

@@ -845,6 +845,7 @@ class AISessionService: ObservableObject {
         case let i as Int:
             return Double(i)
         case let n as NSNumber:
+            guard !isBooleanNumber(n) else { return nil }
             return n.doubleValue
         case let s as String:
             return SessionParserService.parseNumericValue(from: s)
@@ -876,17 +877,29 @@ class AISessionService: ObservableObject {
         case let i as Int:
             return i
         case let d as Double:
-            return Int(d)
+            return exactInteger(from: d)
         case let n as NSNumber:
-            return n.intValue
+            guard !isBooleanNumber(n) else { return nil }
+            return exactInteger(from: n.doubleValue)
         case let s as String:
-            if let ordinal = SessionParserService.parseOrdinalValue(from: s) {
-                return ordinal
-            }
-            return SessionParserService.parseNumericValue(from: s).map(Int.init)
+            return SessionParserService.parseWholeNumberValue(from: s)
         default:
             return nil
         }
+    }
+
+    private static func exactInteger(from value: Double) -> Int? {
+        guard value.isFinite,
+              value.rounded(.towardZero) == value,
+              value >= Double(Int.min),
+              value <= Double(Int.max) else {
+            return nil
+        }
+        return Int(value)
+    }
+
+    private static func isBooleanNumber(_ value: NSNumber) -> Bool {
+        CFGetTypeID(value) == CFBooleanGetTypeID()
     }
 
     private static func normalizedGameType(from value: Any?) -> GameType? {

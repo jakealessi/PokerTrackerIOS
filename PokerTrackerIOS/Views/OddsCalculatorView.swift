@@ -9,10 +9,12 @@
 import SwiftUI
 
 struct OddsCalculatorView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.colorScheme) private var colorScheme
     let preselectedSessionID: UUID?
+    let onHandCreated: ((PokerSession.AttachedHand) -> Void)?
     @State private var showingPaywall = false
     @State private var showingSettings = false
     @State private var showingAttachSheet = false
@@ -34,8 +36,12 @@ struct OddsCalculatorView: View {
 
     private var isFromSession: Bool { preselectedSessionID != nil }
 
-    init(preselectedSessionID: UUID? = nil) {
+    init(
+        preselectedSessionID: UUID? = nil,
+        onHandCreated: ((PokerSession.AttachedHand) -> Void)? = nil
+    ) {
         self.preselectedSessionID = preselectedSessionID
+        self.onHandCreated = onHandCreated
     }
 
     private var canUse: Bool {
@@ -62,14 +68,19 @@ struct OddsCalculatorView: View {
                     paywallSection
                 }
             }
-            .navigationTitle("Odds Calculator")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                     }
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("Odds Calculator")
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     if isFromSession {
@@ -129,6 +140,10 @@ struct OddsCalculatorView: View {
                     if let sessionID = preselectedSessionID,
                        let hand = makeAttachedHand(note: quickAttachNote) {
                         sessionStore.addAttachedHand(hand, toSessionID: sessionID)
+                    } else if let onHandCreated,
+                              let hand = makeAttachedHand(note: quickAttachNote) {
+                        onHandCreated(hand)
+                        dismiss()
                     }
                 }
             } message: {
@@ -480,9 +495,14 @@ struct OddsCalculatorView: View {
             }
             if !isFromSession {
                 Button {
-                    showingAttachSheet = true
+                    if onHandCreated != nil {
+                        quickAttachNote = ""
+                        showingQuickAttachNote = true
+                    } else {
+                        showingAttachSheet = true
+                    }
                 } label: {
-                    Label("Add to Session", systemImage: "plus.bubble")
+                    Label(onHandCreated != nil ? "Add Hand" : "Add to Session", systemImage: "plus.bubble")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
