@@ -561,8 +561,7 @@ struct AnalyticsView: View {
     }
     
     private func shortCurrency(_ value: Double) -> String {
-        let prefix = value < 0 ? "-" : ""
-        return prefix + PokerSession.formatCompactCurrency(abs(value), currency: currency)
+        settingsStore.settings.displayAmount(value, compact: true, includePositiveSign: false)
     }
 
     private func profitBreakdownChartHeight(for count: Int) -> CGFloat {

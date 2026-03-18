@@ -156,7 +156,7 @@ struct CalendarView: View {
                 Text(monthYearString(from: monthStart))
                     .font(.headline)
                 if monthlyTotal != 0 {
-                    Text(formatShortAmount(monthlyTotal))
+                    Text(settingsStore.settings.displayAmount(monthlyTotal, compact: true))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(monthlyTotal >= 0 ? settingsStore.settings.profitLossColorScheme.winColor : settingsStore.settings.profitLossColorScheme.lossColor)
                         .padding(.leading, 8)
@@ -180,7 +180,7 @@ struct CalendarView: View {
                             isToday: calendar.isDateInToday(date),
                             dailyProfit: sessionStore.dailyProfit(on: date, respectingFilters: sessionStore.hasActiveSessionFilters),
                             isInDisplayMonth: calendar.isDate(date, equalTo: monthStart, toGranularity: .month),
-                            currency: settingsStore.settings.currency,
+                            settings: settingsStore.settings,
                             winColor: settingsStore.settings.profitLossColorScheme.winColor,
                             lossColor: settingsStore.settings.profitLossColorScheme.lossColor
                         ) {
@@ -287,12 +287,6 @@ struct CalendarView: View {
         }
     }
     
-    private func formatShortAmount(_ amount: Double) -> String {
-        if amount == 0 { return "" }
-        let prefix = amount > 0 ? "+" : "-"
-        return prefix + PokerSession.formatCompactCurrency(abs(amount), currency: settingsStore.settings.currency)
-    }
-    
     private func daysInMonth(displayMonth: Date) -> [Date?] {
         guard let range = calendar.range(of: .day, in: .month, for: displayMonth),
               let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: displayMonth)) else {
@@ -335,7 +329,7 @@ private struct DayCell: View {
     let isToday: Bool
     let dailyProfit: Double
     let isInDisplayMonth: Bool
-    let currency: String
+    let settings: AppSettings
     let winColor: Color
     let lossColor: Color
     let action: () -> Void
@@ -365,8 +359,7 @@ private struct DayCell: View {
     }
     
     private func formatDailyAmount(_ amount: Double) -> String {
-        let prefix = amount > 0 ? "+" : "-"
-        return prefix + PokerSession.formatCompactCurrency(abs(amount), currency: currency)
+        settings.displayAmount(amount, compact: true)
     }
     
     private var dateTextColor: Color {

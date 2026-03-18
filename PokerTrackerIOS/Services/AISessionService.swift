@@ -962,7 +962,10 @@ class AISessionService: ObservableObject {
     /// Builds a compact summary string of sessions for the AI context.
     static func buildSessionContext(from sessions: [PokerSession], currency: String = "USD") -> String {
         guard !sessions.isEmpty else { return "" }
-        let sorted = sessions.sorted { $0.date < $1.date }
+        let sorted = sessions.sorted {
+            if $0.date != $1.date { return $0.date < $1.date }
+            return $0.id.uuidString < $1.id.uuidString
+        }
         let lines = sorted.enumerated().map { index, s -> String in
             let num = index + 1
             let df = DateFormatter()
@@ -985,6 +988,7 @@ class AISessionService: ObservableObject {
     /// Applies update fields to an existing session
     static func applyUpdate(to session: PokerSession, fields: [String: Any]) -> PokerSession {
         var s = session
+        let explicitVariantField = fields.keys.contains("variant")
         if fieldIsNull(fields["hoursPlayed"]) { s.hoursPlayed = nil }
         if let amount = parseDoubleValue(fields["amount"]) { s.amount = amount }
         if let hours = parseHoursFieldValue(fields["hoursPlayed"]) { s.hoursPlayed = hours }
@@ -1025,7 +1029,9 @@ class AISessionService: ObservableObject {
             s.gameType = gameType
         }
         if isLegacyPLOGameType(rawGameType) {
-            s.variant = s.variant ?? PokerVariant.plo.rawValue
+            if !explicitVariantField || normalizedText(fields["variant"] as? String) == nil {
+                s.variant = PokerVariant.plo.rawValue
+            }
         }
         if let dateStr = fields["date"] as? String {
             if let d = parseDateString(dateStr) { s.date = d }

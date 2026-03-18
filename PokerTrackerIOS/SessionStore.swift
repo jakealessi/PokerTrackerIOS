@@ -44,6 +44,7 @@ class SessionStore: ObservableObject {
 
     @Published var sessions: [PokerSession] = [] {
         didSet {
+            guard !isBootstrapping else { return }
             saveSessions()
             dataVersion += 1
         }
@@ -66,6 +67,7 @@ class SessionStore: ObservableObject {
     private var cloudObserver: NSObjectProtocol?
     private var isApplyingCloudSync = false
     private var cloudSyncUpdatedAt: TimeInterval?
+    private var isBootstrapping = true
     
     init() {
         loadSessionsLocal()
@@ -76,6 +78,7 @@ class SessionStore: ObservableObject {
         ) { [weak self] _ in
             self?.syncFromCloudIfNewer()
         }
+        isBootstrapping = false
         DispatchQueue.main.async { [weak self] in
             self?.cloudStore.synchronize()
             self?.syncFromCloudIfNewer()
@@ -129,10 +132,7 @@ class SessionStore: ObservableObject {
             let nextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? to
             result = result.filter { $0.date < nextDay }
         }
-        return result.sorted {
-            if $0.date != $1.date { return $0.date > $1.date }
-            return $0.id.uuidString > $1.id.uuidString
-        }
+        return sortedSessionsDescending(result)
     }
 
     /// Sessions filtered for the list UI (game/date filters plus search text).
@@ -277,21 +277,21 @@ class SessionStore: ObservableObject {
     // MARK: - Streaks
     var currentWinStreak: Int {
         var streak = 0
-        for session in filteredSessions.sorted(by: { $0.date > $1.date }) {
+        for session in filteredSessions {
             if session.isWin { streak += 1 } else { break }
         }
         return streak
     }
     var currentLossStreak: Int {
         var streak = 0
-        for session in filteredSessions.sorted(by: { $0.date > $1.date }) {
+        for session in filteredSessions {
             if session.isLoss { streak += 1 } else { break }
         }
         return streak
     }
     var longestWinStreak: Int {
         var maxStreak = 0, current = 0
-        for session in filteredSessions.sorted(by: { $0.date < $1.date }) {
+        for session in filteredSessions.reversed() {
             if session.isWin { current += 1; maxStreak = max(maxStreak, current) }
             else { current = 0 }
         }
@@ -484,7 +484,7 @@ class SessionStore: ObservableObject {
     func sessions(on date: Date, respectingFilters: Bool = false) -> [PokerSession] {
         let source = respectingFilters ? filteredSessions : sessions
         return source.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
-            .sorted { $0.date < $1.date }
+            .sorted(by: isSessionEarlier(lhs:rhs:))
     }
     
     /// Total profit for a given calendar day
@@ -505,10 +505,7 @@ class SessionStore: ObservableObject {
     
     /// Sessions sorted earliest to latest (used for display numbers; uses all sessions for stable numbering)
     var sessionsByDateAscending: [PokerSession] {
-        sessions.sorted {
-            if $0.date != $1.date { return $0.date < $1.date }
-            return $0.id.uuidString < $1.id.uuidString
-        }
+        sortedSessionsAscending(sessions)
     }
     
     /// Display number for a session (1-based, earliest = #1)
@@ -532,20 +529,27 @@ class SessionStore: ObservableObject {
     
     func updateSession(_ session: PokerSession) {
         if let i = sessions.firstIndex(where: { $0.id == session.id }) {
+            let previous = sessions[i]
             var updated = sessions
             updated[i] = session
-            sessions = sortedSessions(updated)
+            let sorted = sortedSessions(updated)
+            let removedImageIDs = Set(previous.imageIds).subtracting(session.imageIds)
+            deleteImagesNoLongerReferenced(removedImageIDs, in: sorted)
+            sessions = sorted
         }
     }
 
     func addAttachedHand(_ hand: PokerSession.AttachedHand, toSessionID id: UUID) {
         guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
-        sessions[i].attachedHands.append(hand)
+        var updated = sessions
+        updated[i].attachedHands.append(hand)
+        sessions = sortedSessions(updated)
     }
     
     func deleteSession(_ session: PokerSession) {
-        SessionImageStore.delete(imageIds: session.imageIds)
-        sessions.removeAll { $0.id == session.id }
+        let remainingSessions = sessions.filter { $0.id != session.id }
+        deleteImagesNoLongerReferenced(Set(session.imageIds), in: remainingSessions)
+        sessions = remainingSessions
     }
 
     private func groupedProfitBreakdown(_ labelForSession: (PokerSession) -> String) -> [ProfitBreakdownEntry] {
@@ -576,7 +580,7 @@ class SessionStore: ObservableObject {
         }
 
         var csv = "Date,Game Format,Variant,Gross Amount,Total Expenses,Rake,Tips,Food,Travel,Fees,Net Amount,Hours,Stakes,Venue,Tags,Notes\n"
-        for s in sessions.sorted(by: { $0.date > $1.date }) {
+        for s in sortedSessionsDescending(sessions) {
             let date = ISO8601DateFormatter().string(from: s.date)
             let grossAmount = PokerSession.formatCurrency(s.amount, currency: currency)
             let totalExpenses = PokerSession.formatCurrency(s.totalExpenses, currency: currency)
@@ -694,11 +698,9 @@ class SessionStore: ObservableObject {
     private func replaceSessionsWithCleanup(_ restoredSessions: [PokerSession]) {
         let currentImageIDs = Set(sessions.flatMap(\.imageIds))
         let restoredImageIDs = Set(restoredSessions.flatMap(\.imageIds))
-        let orphanedImageIDs = currentImageIDs.subtracting(restoredImageIDs)
-        if !orphanedImageIDs.isEmpty {
-            SessionImageStore.delete(imageIds: Array(orphanedImageIDs))
-        }
-        sessions = sortedSessions(restoredSessions)
+        let sortedRestoredSessions = sortedSessions(restoredSessions)
+        deleteImagesNoLongerReferenced(currentImageIDs.subtracting(restoredImageIDs), in: sortedRestoredSessions)
+        sessions = sortedRestoredSessions
     }
 
     private var filteredDailyProfit: [(Date, Double)] {
@@ -719,12 +721,25 @@ class SessionStore: ObservableObject {
     }
 
     private func sortedSessions(_ source: [PokerSession]) -> [PokerSession] {
-        source
-            .map(normalizedSession(_:))
-            .sorted {
-                if $0.date != $1.date { return $0.date > $1.date }
-                return $0.id.uuidString > $1.id.uuidString
-            }
+        sortedSessionsDescending(source.map(normalizedSession(_:)))
+    }
+
+    private func sortedSessionsDescending(_ source: [PokerSession]) -> [PokerSession] {
+        source.sorted(by: isSessionLater(lhs:rhs:))
+    }
+
+    private func sortedSessionsAscending(_ source: [PokerSession]) -> [PokerSession] {
+        source.sorted(by: isSessionEarlier(lhs:rhs:))
+    }
+
+    private func isSessionLater(lhs: PokerSession, rhs: PokerSession) -> Bool {
+        if lhs.date != rhs.date { return lhs.date > rhs.date }
+        return lhs.id.uuidString > rhs.id.uuidString
+    }
+
+    private func isSessionEarlier(lhs: PokerSession, rhs: PokerSession) -> Bool {
+        if lhs.date != rhs.date { return lhs.date < rhs.date }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     private func normalizedSession(_ session: PokerSession) -> PokerSession {
@@ -734,12 +749,15 @@ class SessionStore: ObservableObject {
         normalized.food = normalizedExpense(normalized.food)
         normalized.travel = normalizedExpense(normalized.travel)
         normalized.fees = normalizedExpense(normalized.fees)
+        normalized.hoursPlayed = normalizedDuration(normalized.hoursPlayed)
         normalized.variant = normalizedVariant(normalized.variant)
         normalized.stakes = normalizedStakes(normalized.stakes)
         normalized.venue = VenueCleaner.clean(normalized.venue)
         normalized.handNotes = normalizedOptionalText(normalized.handNotes)
         normalized.notes = normalized.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         normalized.tags = normalizedTags(normalized.tags)
+        normalized.tournamentPosition = normalizedPositiveInt(normalized.tournamentPosition)
+        normalized.rebuys = normalizedNonNegativeInt(normalized.rebuys)
 
         // Legacy PLO sessions should be stored as cash sessions with a PLO variant.
         if normalized.gameType == .plo {
@@ -750,7 +768,7 @@ class SessionStore: ObservableObject {
         }
 
         if let calculated = PokerSession.calculatedHours(from: normalized.startTime, to: normalized.endTime),
-           normalized.hoursPlayed == nil || (normalized.hoursPlayed ?? 0) <= 0 {
+           normalized.hoursPlayed == nil {
             normalized.hoursPlayed = calculated
         }
         return normalized
@@ -775,6 +793,11 @@ class SessionStore: ObservableObject {
         guard let value else { return nil }
         let normalized = abs(value)
         return normalized > 0.0001 ? normalized : nil
+    }
+
+    private func normalizedDuration(_ value: Double?) -> Double? {
+        guard let value, value.isFinite else { return nil }
+        return value > 0.0001 ? value : nil
     }
 
     private func normalizedOptionalText(_ value: String?) -> String? {
@@ -828,5 +851,23 @@ class SessionStore: ObservableObject {
         }
 
         return ordered
+    }
+
+    private func normalizedPositiveInt(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private func normalizedNonNegativeInt(_ value: Int?) -> Int? {
+        guard let value, value >= 0 else { return nil }
+        return value == 0 ? nil : value
+    }
+
+    private func deleteImagesNoLongerReferenced(_ candidateImageIDs: Set<String>, in source: [PokerSession]) {
+        guard !candidateImageIDs.isEmpty else { return }
+        let referencedImageIDs = Set(source.flatMap(\.imageIds))
+        let orphanedImageIDs = candidateImageIDs.subtracting(referencedImageIDs)
+        guard !orphanedImageIDs.isEmpty else { return }
+        SessionImageStore.delete(imageIds: Array(orphanedImageIDs))
     }
 }

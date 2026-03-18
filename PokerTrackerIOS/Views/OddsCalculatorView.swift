@@ -42,6 +42,10 @@ struct OddsCalculatorView: View {
         subscriptionStore.isSubscribed || OddsCalculatorUsage.hasFreeUsesRemaining
     }
 
+    private var canAccessCalculator: Bool {
+        canUse || result != nil || isCalculating
+    }
+
     private var premiumCTAButtonTitle: String {
         if subscriptionStore.proMonthlyProduct?.subscription?.introductoryOffer?.paymentMode == .freeTrial {
             return "Unlock Premium — Start Free Trial"
@@ -52,7 +56,7 @@ struct OddsCalculatorView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if canUse {
+                if canAccessCalculator {
                     calculatorContent
                 } else {
                     paywallSection

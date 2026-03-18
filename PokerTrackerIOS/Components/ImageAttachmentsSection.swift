@@ -39,6 +39,7 @@ struct ImageAttachmentsSection: View {
             Label("Add Photos", systemImage: "photo.on.rectangle.angled")
         }
         .onChange(of: selectedItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
             loadTask?.cancel()
             loadGeneration += 1
             let generation = loadGeneration
@@ -95,13 +96,13 @@ struct ImageAttachmentsSection: View {
     private func loadAndSaveImages(from items: [PhotosPickerItem], generation: Int) async {
         await MainActor.run {
             isLoading = true
-            selectedItems = []
         }
 
         defer {
             Task { @MainActor in
                 guard loadGeneration == generation else { return }
                 isLoading = false
+                selectedItems = []
                 loadTask = nil
             }
         }

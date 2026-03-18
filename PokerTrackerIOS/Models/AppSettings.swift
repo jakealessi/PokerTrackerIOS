@@ -158,4 +158,45 @@ struct AppSettings: Codable {
         try c.encode(workerBaseURL, forKey: .workerBaseURL)
         try c.encode(reminderEnabled, forKey: .reminderEnabled)
     }
+
+    func displayAmount(_ value: Double, compact: Bool? = nil, includePositiveSign: Bool = true) -> String {
+        let useCompact = compact ?? useCompactCurrency
+        guard useCompact else {
+            return PokerSession.formatCurrency(value, currency: currency)
+        }
+
+        let prefix: String
+        if value < 0 {
+            prefix = "-"
+        } else if value > 0, includePositiveSign {
+            prefix = "+"
+        } else {
+            prefix = ""
+        }
+
+        return prefix + PokerSession.formatCompactCurrency(abs(value), currency: currency)
+    }
+
+    func displayUnsignedAmount(_ value: Double, compact: Bool? = nil) -> String {
+        let useCompact = compact ?? useCompactCurrency
+        if useCompact {
+            return PokerSession.formatCompactCurrency(abs(value), currency: currency)
+        }
+        return PokerSession.formatCurrency(abs(value), currency: currency)
+    }
+
+    func displayTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        if use24HourTime {
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "HH:mm"
+        } else {
+            formatter.timeStyle = .short
+        }
+        return formatter.string(from: date)
+    }
+
+    func displayTimeRange(from start: Date, to end: Date) -> String {
+        "\(displayTime(start)) – \(displayTime(end))"
+    }
 }

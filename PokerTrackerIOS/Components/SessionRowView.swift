@@ -28,12 +28,7 @@ struct SessionRowView: View {
     }
 
     private var amountText: String {
-        let netAmount = session.netAmount
-        if settingsStore.settings.useCompactCurrency {
-            let prefix = netAmount > 0 ? "+" : (netAmount < 0 ? "-" : "")
-            return prefix + PokerSession.formatCompactCurrency(abs(netAmount), currency: currency)
-        }
-        return PokerSession.formatCurrency(netAmount, currency: currency)
+        settingsStore.settings.displayAmount(session.netAmount)
     }
     
     var body: some View {

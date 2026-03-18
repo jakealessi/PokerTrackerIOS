@@ -129,15 +129,15 @@ struct SessionDetailView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
             if let start = s.startTime, let end = s.endTime {
-                Text(timeRangeString(from: start, to: end))
+                Text(settingsStore.settings.displayTimeRange(from: start, to: end))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else if let start = s.startTime {
-                Text("Started \(timeString(from: start))")
+                Text("Started \(settingsStore.settings.displayTime(start))")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else if let end = s.endTime {
-                Text("Ended \(timeString(from: end))")
+                Text("Ended \(settingsStore.settings.displayTime(end))")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -281,21 +281,6 @@ struct SessionDetailView: View {
         }
     }
     
-    private func timeString(from date: Date) -> String {
-        let formatter = DateFormatter()
-        if settingsStore.settings.use24HourTime {
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.dateFormat = "HH:mm"
-        } else {
-            formatter.timeStyle = .short
-        }
-        return formatter.string(from: date)
-    }
-    
-    private func timeRangeString(from start: Date, to end: Date) -> String {
-        "\(timeString(from: start)) – \(timeString(from: end))"
-    }
-    
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
@@ -423,20 +408,11 @@ struct SessionDetailView: View {
     }
 
     private func formattedAmount(_ value: Double) -> String {
-        let currency = settingsStore.settings.currency
-        if settingsStore.settings.useCompactCurrency {
-            let prefix = value > 0 ? "+" : (value < 0 ? "-" : "")
-            return prefix + PokerSession.formatCompactCurrency(abs(value), currency: currency)
-        }
-        return PokerSession.formatCurrency(value, currency: currency)
+        settingsStore.settings.displayAmount(value)
     }
 
     private func formattedUnsignedAmount(_ value: Double) -> String {
-        let currency = settingsStore.settings.currency
-        if settingsStore.settings.useCompactCurrency {
-            return PokerSession.formatCompactCurrency(abs(value), currency: currency)
-        }
-        return PokerSession.formatCurrency(abs(value), currency: currency)
+        settingsStore.settings.displayUnsignedAmount(value)
     }
 
     private var currentSession: PokerSession {
@@ -460,7 +436,7 @@ struct SessionDetailView: View {
         if let stakes = s.stakes, !stakes.isEmpty { lines.append("Stakes: \(stakes)") }
         if let venue = s.venue, !venue.isEmpty { lines.append("Venue: \(venue)") }
         if let start = s.startTime, let end = s.endTime {
-            lines.append("\(timeString(from: start)) – \(timeString(from: end))")
+            lines.append(settingsStore.settings.displayTimeRange(from: start, to: end))
         }
         if let hours = s.hoursPlayed { lines.append("Hours: \(String(format: "%.1f", hours))") }
         if let roi = s.tournamentROI { lines.append("ROI: \(String(format: "%.0f%%", roi))") }
@@ -559,14 +535,17 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
+        let proposedWidth = proposal.width
+        let maxWidth = proposedWidth ?? .greatestFiniteMagnitude
         var currentX: CGFloat = 0
         var currentY: CGFloat = 0
         var rowHeight: CGFloat = 0
+        var measuredWidth: CGFloat = 0
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
             if currentX + size.width > maxWidth, currentX > 0 {
+                measuredWidth = max(measuredWidth, currentX - spacing)
                 currentY += rowHeight + spacing
                 currentX = 0
                 rowHeight = 0
@@ -574,7 +553,11 @@ struct FlowLayout: Layout {
             currentX += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
-        return CGSize(width: maxWidth, height: currentY + rowHeight)
+        if currentX > 0 {
+            measuredWidth = max(measuredWidth, currentX - spacing)
+        }
+
+        return CGSize(width: proposedWidth ?? measuredWidth, height: currentY + rowHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

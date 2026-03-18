@@ -52,6 +52,12 @@ class SettingsStore: ObservableObject {
     var currentBankroll: Double {
         settings.startingBankroll
     }
+
+    func update(_ mutate: (inout AppSettings) -> Void) {
+        var updated = settings
+        mutate(&updated)
+        settings = updated
+    }
     
     private func save() {
         guard let encoded = try? JSONEncoder().encode(settings) else { return }

@@ -33,7 +33,6 @@
 		A1000032 /* VenueCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000032 /* VenueCleaner.swift */; };
 		A1000033 /* SessionImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000033 /* SessionImageStore.swift */; };
 		A1000034 /* ImageAttachmentsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000034 /* ImageAttachmentsSection.swift */; };
-		A1000035 /* ActivitySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000035 /* ActivitySheet.swift */; };
 		A1000036 /* SubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000036 /* SubscriptionStore.swift */; };
 		A1000037 /* SubscriptionPaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000037 /* SubscriptionPaywallView.swift */; };
 		A1000038 /* AISessionCrafterUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000038 /* AISessionCrafterUsage.swift */; };
@@ -44,6 +43,7 @@
 			A1000044 /* AnonymousUserID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000044 /* AnonymousUserID.swift */; };
 			A1000045 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000045 /* ReminderManager.swift */; };
 			A1000046 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A2000046 /* PrivacyInfo.xcprivacy */; };
+		A1000047 /* SessionEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000047 /* SessionEditorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,7 +74,6 @@
 		A2000032 /* VenueCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VenueCleaner.swift; sourceTree = "<group>"; };
 		A2000033 /* SessionImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionImageStore.swift; sourceTree = "<group>"; };
 		A2000034 /* ImageAttachmentsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentsSection.swift; sourceTree = "<group>"; };
-		A2000035 /* ActivitySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitySheet.swift; sourceTree = "<group>"; };
 		A2000036 /* SubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionStore.swift; sourceTree = "<group>"; };
 		A2000037 /* SubscriptionPaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionPaywallView.swift; sourceTree = "<group>"; };
 		A2000038 /* AISessionCrafterUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISessionCrafterUsage.swift; sourceTree = "<group>"; };
@@ -85,6 +84,7 @@
 			A2000044 /* AnonymousUserID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousUserID.swift; sourceTree = "<group>"; };
 			A2000045 /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
 			A2000046 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A2000047 /* SessionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEditorView.swift; sourceTree = "<group>"; };
 			A3000001 /* PokerTrackerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerTrackerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B77267D62F5406F200A2990B /* PokerTrackerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PokerTrackerIOS.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -155,6 +155,7 @@
 				A2000013 /* SessionDetailView.swift */,
 				A2000014 /* EditSessionView.swift */,
 				A2000006 /* AddSessionView.swift */,
+				A2000047 /* SessionEditorView.swift */,
 				A2000020 /* OnboardingView.swift */,
 				A2000015 /* AnalyticsView.swift */,
 				A2000017 /* SettingsView.swift */,
@@ -182,7 +183,6 @@
 				A2000028 /* AppTheme.swift */,
 				A2000032 /* VenueCleaner.swift */,
 				A2000033 /* SessionImageStore.swift */,
-				A2000035 /* ActivitySheet.swift */,
 				A2000038 /* AISessionCrafterUsage.swift */,
 				A2000040 /* AppURLs.swift */,
 				A2000041 /* OddsCalculatorUsage.swift */,
@@ -304,6 +304,7 @@
 				A1000012 /* SessionsListView.swift in Sources */,
 				A1000013 /* SessionDetailView.swift in Sources */,
 				A1000014 /* EditSessionView.swift in Sources */,
+				A1000047 /* SessionEditorView.swift in Sources */,
 				A1000015 /* AnalyticsView.swift in Sources */,
 				A1000017 /* SettingsView.swift in Sources */,
 				A1000019 /* SessionRowView.swift in Sources */,
@@ -317,7 +318,6 @@
 				A1000029 /* SessionParserService.swift in Sources */,
 				A1000032 /* VenueCleaner.swift in Sources */,
 				A1000033 /* SessionImageStore.swift in Sources */,
-				A1000035 /* ActivitySheet.swift in Sources */,
 				A1000036 /* SubscriptionStore.swift in Sources */,
 				A1000037 /* SubscriptionPaywallView.swift in Sources */,
 				A1000038 /* AISessionCrafterUsage.swift in Sources */,

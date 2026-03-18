@@ -143,26 +143,12 @@ struct SettingsView: View {
     
     private var aiSection: some View {
         Section {
-            SecureField("Gemini API Key", text: Binding(
-                get: { settingsStore.settings.geminiAPIKey ?? "" },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.geminiAPIKey = val.isEmpty ? nil : val
-                    settingsStore.settings = s
-                }
-            ))
+            SecureField("Gemini API Key", text: optionalStringBinding(\.geminiAPIKey))
             .textContentType(.password)
             .autocapitalization(.none)
             .autocorrectionDisabled()
             
-            SecureField("OpenAI API Key", text: Binding(
-                get: { settingsStore.settings.openAIAPIKey ?? "" },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.openAIAPIKey = val.isEmpty ? nil : val
-                    settingsStore.settings = s
-                }
-            ))
+            SecureField("OpenAI API Key", text: optionalStringBinding(\.openAIAPIKey))
             .textContentType(.password)
             .autocapitalization(.none)
             .autocorrectionDisabled()
@@ -175,25 +161,11 @@ struct SettingsView: View {
     
     private var gameDefaultsSection: some View {
         Section {
-            Picker("Default Format", selection: Binding(
-                get: { settingsStore.settings.defaultGameType },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.defaultGameType = val
-                    settingsStore.settings = s
-                }
-            )) {
+            Picker("Default Format", selection: settingBinding(\.defaultGameType)) {
                 ForEach(GameType.formatOptions, id: \.self) { Text($0.rawValue).tag($0) }
             }
             
-            Picker("Default Variant", selection: Binding(
-                get: { settingsStore.settings.defaultVariant ?? PokerVariant.noLimitHoldem.rawValue },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.defaultVariant = val
-                    settingsStore.settings = s
-                }
-            )) {
+            Picker("Default Variant", selection: defaultVariantBinding) {
                 ForEach(PokerVariant.allCases, id: \.rawValue) { variant in
                     Text(variant.rawValue).tag(variant.rawValue)
                 }
@@ -207,17 +179,7 @@ struct SettingsView: View {
         Section {
             HStack {
                 Text("Starting Bankroll")
-                TextField("0", value: Binding<Double?>(
-                    get: {
-                        let v = settingsStore.settings.startingBankroll
-                        return v == 0 ? nil : v
-                    },
-                    set: { val in
-                        var s = settingsStore.settings
-                        s.startingBankroll = val ?? 0
-                        settingsStore.settings = s
-                    }
-                ), format: .number)
+                TextField("0", value: startingBankrollBinding, format: .number)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
             }
@@ -228,14 +190,7 @@ struct SettingsView: View {
     
     private var currencySection: some View {
         Section {
-            Picker("Currency", selection: Binding(
-                get: { settingsStore.settings.currency },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.currency = val
-                    settingsStore.settings = s
-                }
-            )) {
+            Picker("Currency", selection: settingBinding(\.currency)) {
                 Text("USD").tag("USD")
                 Text("EUR").tag("EUR")
                 Text("GBP").tag("GBP")
@@ -247,37 +202,16 @@ struct SettingsView: View {
     
     private var preferencesSection: some View {
         Section {
-            Picker("Win / Loss Colors", selection: Binding(
-                get: { settingsStore.settings.profitLossColorScheme },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.profitLossColorScheme = val
-                    settingsStore.settings = s
-                }
-            )) {
+            Picker("Win / Loss Colors", selection: settingBinding(\.profitLossColorScheme)) {
                 ForEach(ProfitLossColorScheme.allCases, id: \.self) { scheme in
                     Text(scheme.rawValue).tag(scheme)
                 }
             }
             .accessibilityHint("Choose colorblind-friendly alternatives")
             
-            Toggle("Show Hourly Rate", isOn: Binding(
-                get: { settingsStore.settings.showHourlyRate },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.showHourlyRate = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Show Hourly Rate", isOn: settingBinding(\.showHourlyRate))
             
-            Toggle("Haptic Feedback", isOn: Binding(
-                get: { settingsStore.settings.hapticFeedback },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.hapticFeedback = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Haptic Feedback", isOn: settingBinding(\.hapticFeedback))
         } header: {
             Text("Preferences")
         } footer: {
@@ -287,32 +221,11 @@ struct SettingsView: View {
 
     private var displayPreferencesSection: some View {
         Section {
-            Toggle("24-Hour Time", isOn: Binding(
-                get: { settingsStore.settings.use24HourTime },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.use24HourTime = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("24-Hour Time", isOn: settingBinding(\.use24HourTime))
 
-            Toggle("Compact Currency", isOn: Binding(
-                get: { settingsStore.settings.useCompactCurrency },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.useCompactCurrency = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Compact Currency", isOn: settingBinding(\.useCompactCurrency))
 
-            Toggle("Show Session Numbers", isOn: Binding(
-                get: { settingsStore.settings.showSessionNumbers },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.showSessionNumbers = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Show Session Numbers", isOn: settingBinding(\.showSessionNumbers))
         } header: {
             Text("Display Preferences")
         } footer: {
@@ -351,14 +264,7 @@ struct SettingsView: View {
                     .foregroundStyle(.orange)
             }
 
-            Toggle("Confirm Before Delete", isOn: Binding(
-                get: { settingsStore.settings.confirmBeforeDelete },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.confirmBeforeDelete = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Confirm Before Delete", isOn: settingBinding(\.confirmBeforeDelete))
         } header: {
             Text("Data & Recovery")
         } footer: {
@@ -368,14 +274,7 @@ struct SettingsView: View {
     
     private var remindersSection: some View {
         Section {
-            Toggle("Session Reminders", isOn: Binding(
-                get: { settingsStore.settings.reminderEnabled },
-                set: { val in
-                    var s = settingsStore.settings
-                    s.reminderEnabled = val
-                    settingsStore.settings = s
-                }
-            ))
+            Toggle("Session Reminders", isOn: settingBinding(\.reminderEnabled))
         } header: {
             Text("Reminders")
         } footer: {
@@ -444,6 +343,45 @@ struct SettingsView: View {
             if settingsStore.settings.hapticFeedback { HapticManager.notification(.error) }
         }
         showingRestoreResult = true
+    }
+
+    private func settingBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { settingsStore.settings[keyPath: keyPath] },
+            set: { value in
+                settingsStore.update { $0[keyPath: keyPath] = value }
+            }
+        )
+    }
+
+    private func optionalStringBinding(_ keyPath: WritableKeyPath<AppSettings, String?>) -> Binding<String> {
+        Binding(
+            get: { settingsStore.settings[keyPath: keyPath] ?? "" },
+            set: { value in
+                settingsStore.update { $0[keyPath: keyPath] = value.isEmpty ? nil : value }
+            }
+        )
+    }
+
+    private var defaultVariantBinding: Binding<String> {
+        Binding(
+            get: { settingsStore.settings.defaultVariant ?? PokerVariant.noLimitHoldem.rawValue },
+            set: { value in
+                settingsStore.update { $0.defaultVariant = value }
+            }
+        )
+    }
+
+    private var startingBankrollBinding: Binding<Double?> {
+        Binding(
+            get: {
+                let bankroll = settingsStore.settings.startingBankroll
+                return bankroll == 0 ? nil : bankroll
+            },
+            set: { value in
+                settingsStore.update { $0.startingBankroll = value ?? 0 }
+            }
+        )
     }
 }
 

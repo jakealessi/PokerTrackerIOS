@@ -1011,6 +1011,14 @@ enum SessionParserService {
             return Int(digits)
         }
 
+        if hasTournamentContext(in: text),
+           let digits = extractMatch(
+            using: #"(?:finished|came(?:\s+in)?|placed|busted(?:\s+in)?|ended)\s+(\d+)\b"#,
+            in: text
+           ) {
+            return Int(digits)
+        }
+
         return extractMatch(
             using: #"(?:finished|came(?:\s+in)?|placed|busted(?:\s+in)?)\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\b"#,
             in: text
