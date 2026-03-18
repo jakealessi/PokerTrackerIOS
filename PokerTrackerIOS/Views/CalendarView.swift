@@ -20,9 +20,10 @@ struct CalendarView: View {
 
     private var weekdaySymbols: [String] {
         let baseSymbols = calendar.shortWeekdaySymbols
+        let symbols = baseSymbols.count >= 7 ? baseSymbols : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         return (0..<7).map { offset in
             let index = (calendar.firstWeekday - 1 + offset) % 7
-            return baseSymbols[index]
+            return symbols.indices.contains(index) ? symbols[index] : "?"
         }
     }
     
@@ -116,6 +117,7 @@ struct CalendarView: View {
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 12) {
                         Button("Today") {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: Date()))
                             scrollPosition = month
                             withAnimation(AppTheme.smoothSpring) {
@@ -129,7 +131,10 @@ struct CalendarView: View {
                             Image(systemName: sessionStore.hasActiveSessionFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                                 .foregroundStyle(AppTheme.accent)
                         }
-                        Button { showingAddSession = true } label: {
+                        Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                            showingAddSession = true
+                        } label: {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(AppTheme.accent)
                         }
@@ -143,6 +148,7 @@ struct CalendarView: View {
             .sheet(isPresented: $showingFilters) {
                 FilterView()
                     .environmentObject(sessionStore)
+                    .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
@@ -185,6 +191,7 @@ struct CalendarView: View {
                             winColor: settingsStore.settings.profitLossColorScheme.winColor,
                             lossColor: settingsStore.settings.profitLossColorScheme.lossColor
                         ) {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             withAnimation(AppTheme.smoothSpring) {
                                 selectedDate = date
                             }
@@ -213,6 +220,7 @@ struct CalendarView: View {
                     .foregroundStyle(.primary)
                 Spacer()
                 Button("Clear") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     withAnimation(AppTheme.smoothSpring) {
                         selectedDate = nil
                     }
@@ -279,6 +287,7 @@ struct CalendarView: View {
                 }
 
                 Button("Clear") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     sessionStore.clearFilters()
                 }
                 .font(.caption.weight(.semibold))
@@ -354,6 +363,7 @@ private struct DayCell: View {
             .frame(maxWidth: .infinity)
             .background(cellBackground)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .animation(AppTheme.smoothSpring, value: isSelected)

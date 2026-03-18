@@ -16,6 +16,7 @@ struct AnalyticsView: View {
     @State private var hourlyRateBreakdownDimension: HourlyRateBreakdownDimension = .venue
     
     private var currency: String { settingsStore.settings.currency }
+    private var settingsDefaultDeductExpenses: Bool { settingsStore.settings.deductExpensesFromProfit }
     private var drawdownColor: Color { Color(uiColor: .systemGray) }
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
@@ -97,6 +98,7 @@ struct AnalyticsView: View {
             .sheet(isPresented: $showingFilters) {
                 FilterView()
                     .environmentObject(sessionStore)
+                    .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingPaywall) {
                 SubscriptionPaywallView(
@@ -104,6 +106,7 @@ struct AnalyticsView: View {
                     subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+                .environmentObject(settingsStore)
             }
         }
     }
@@ -123,6 +126,7 @@ struct AnalyticsView: View {
                 .multilineTextAlignment(.center)
 
             Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 showingPaywall = true
             } label: {
                 Text(premiumCTAButtonTitle)
@@ -134,6 +138,7 @@ struct AnalyticsView: View {
                             .fill(AppTheme.accent)
                     )
                     .foregroundStyle(.white)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
@@ -153,6 +158,7 @@ struct AnalyticsView: View {
                 .lineLimit(3)
             Spacer()
             Button("Clear") {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 sessionStore.clearFilters()
             }
             .font(.subheadline.weight(.medium))
@@ -181,14 +187,26 @@ struct AnalyticsView: View {
         return range.start...range.end
     }
     
+    /// Date format for cumulative profit X-axis: month+day for short spans, month+year for longer
+    private var cumulativeProfitChartDateFormat: Date.FormatStyle {
+        let domain = cumulativeProfitDomain
+        let days = domain.upperBound.timeIntervalSince(domain.lowerBound) / (24 * 3600)
+        if days <= 31 {
+            return .dateTime.month(.abbreviated).day()
+        }
+        return .dateTime.month(.abbreviated).year(.twoDigits)
+    }
+    
     // MARK: - Summary Cards
     
     private var summaryCards: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            summaryCard("Net P/L", PokerSession.formatCurrency(sessionStore.totalProfit, currency: currency), sessionStore.totalProfit >= 0 ? winColor : lossColor)
+        let total = sessionStore.totalProfit(settingsDefault: settingsDefaultDeductExpenses)
+        let avg = sessionStore.averageSession(settingsDefault: settingsDefaultDeductExpenses)
+        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            summaryCard("Net P/L", PokerSession.formatCurrency(total, currency: currency), total >= 0 ? winColor : lossColor)
             summaryCard("Sessions", "\(sessionStore.totalSessions)", AppTheme.accent)
             summaryCard("Win Rate", String(format: "%.0f%%", sessionStore.winRate), AppTheme.accent)
-            summaryCard("Avg Session", PokerSession.formatCurrency(sessionStore.averageSession, currency: currency), sessionStore.averageSession >= 0 ? winColor : lossColor)
+            summaryCard("Avg Session", PokerSession.formatCurrency(avg, currency: currency), avg >= 0 ? winColor : lossColor)
         }
     }
     
@@ -213,7 +231,7 @@ struct AnalyticsView: View {
     
     private var profitLineChart: some View {
         let data = sessionStore.profitOverTime
-        let color: Color = sessionStore.totalProfit >= 0 ? winColor : lossColor
+        let color: Color = sessionStore.totalProfit(settingsDefault: settingsDefaultDeductExpenses) >= 0 ? winColor : lossColor
         return VStack(alignment: .leading, spacing: 8) {
             Text("Cumulative Net Profit")
                 .font(.headline)
@@ -259,7 +277,7 @@ struct AnalyticsView: View {
             }
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 5)) { value in
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
+                    AxisValueLabel(format: cumulativeProfitChartDateFormat)
                         .font(.caption2)
                 }
             }
@@ -311,15 +329,17 @@ struct AnalyticsView: View {
                                 .font(.subheadline)
                         }
                     }
-                    if let best = sessionStore.bestSession {
-                        Text("Best: \(PokerSession.formatCurrency(best.netAmount, currency: currency))")
+                    if let best = sessionStore.bestSession(settingsDefault: settingsDefaultDeductExpenses) {
+                        let bestProfit = best.displayProfit(deductExpenses: best.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses))
+                        Text("Best: \(PokerSession.formatCurrency(bestProfit, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(best.netAmount >= 0 ? winColor : lossColor)
+                            .foregroundStyle(bestProfit >= 0 ? winColor : lossColor)
                     }
-                    if let worst = sessionStore.worstSession {
-                        Text("Worst: \(PokerSession.formatCurrency(worst.netAmount, currency: currency))")
+                    if let worst = sessionStore.worstSession(settingsDefault: settingsDefaultDeductExpenses) {
+                        let worstProfit = worst.displayProfit(deductExpenses: worst.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses))
+                        Text("Worst: \(PokerSession.formatCurrency(worstProfit, currency: currency))")
                             .font(.caption)
-                            .foregroundStyle(worst.netAmount >= 0 ? winColor : lossColor)
+                            .foregroundStyle(worstProfit >= 0 ? winColor : lossColor)
                     }
                 }
                 
@@ -380,7 +400,7 @@ struct AnalyticsView: View {
             }
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 5)) { value in
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
+                    AxisValueLabel(format: cumulativeProfitChartDateFormat)
                         .font(.caption2)
                 }
             }
@@ -446,7 +466,7 @@ struct AnalyticsView: View {
     // MARK: - Profit Breakdown
 
     private var profitBreakdownChart: some View {
-        let data = sessionStore.profitBreakdown(for: profitBreakdownDimension)
+        let data = sessionStore.profitBreakdown(for: profitBreakdownDimension, settingsDefault: settingsDefaultDeductExpenses)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -523,7 +543,7 @@ struct AnalyticsView: View {
     // MARK: - Hourly Rate Breakdown
 
     private var hourlyRateBreakdownChart: some View {
-        let data = sessionStore.hourlyRateBreakdown(for: hourlyRateBreakdownDimension)
+        let data = sessionStore.hourlyRateBreakdown(for: hourlyRateBreakdownDimension, settingsDefault: settingsDefaultDeductExpenses)
         let totalSessions = data.reduce(0) { $0 + $1.sessions }
         let totalHours = data.reduce(0) { $0 + $1.totalHours }
         let bestEntry = data.max { lhs, rhs in
@@ -728,6 +748,7 @@ struct AnalyticsView: View {
 struct StatsDateRangeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var settingsStore: SettingsStore
     
     @State private var dateFrom = Date()
     @State private var dateTo = Date()
@@ -739,6 +760,7 @@ struct StatsDateRangeSheet: View {
             Form {
                 Section {
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         sessionStore.filterDateFrom = nil
                         sessionStore.filterDateTo = nil
                         dismiss()
@@ -747,19 +769,24 @@ struct StatsDateRangeSheet: View {
                             Image(systemName: "calendar")
                             Text("All (Earliest session – Today)")
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     
                     presetButton("Last 30 days") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         let end = Date()
                         let start = calendar.date(byAdding: .day, value: -30, to: end) ?? end
                         apply(start: start, end: end)
                     }
                     presetButton("Last 90 days") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         let end = Date()
                         let start = calendar.date(byAdding: .day, value: -90, to: end) ?? end
                         apply(start: start, end: end)
                     }
                     presetButton("This year") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         let end = Date()
                         let start = calendar.date(from: calendar.dateComponents([.year], from: end)) ?? end
                         apply(start: start, end: end)
@@ -772,6 +799,7 @@ struct StatsDateRangeSheet: View {
                     DatePicker("From", selection: $dateFrom, displayedComponents: .date)
                     DatePicker("To", selection: $dateTo, displayedComponents: .date)
                     Button("Apply custom range") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         let start = min(dateFrom, dateTo)
                         let end = max(dateFrom, dateTo)
                         apply(start: start, end: end)
@@ -792,13 +820,20 @@ struct StatsDateRangeSheet: View {
                 if let range = sessionStore.allSessionsDateRange {
                     dateFrom = sessionStore.filterDateFrom ?? range.start
                     dateTo = sessionStore.filterDateTo ?? range.end
+                } else {
+                    dateFrom = sessionStore.filterDateFrom ?? Date()
+                    dateTo = sessionStore.filterDateTo ?? Date()
                 }
             }
         }
     }
     
     private func presetButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(action: action) {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
     }
     
     private func apply(start: Date, end: Date) {

@@ -29,21 +29,25 @@ struct SessionsListView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button {
+                                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                                     if settingsStore.settings.confirmBeforeDelete {
                                         sessionToDelete = session
                                     } else {
                                         sessionStore.deleteSession(session)
-                                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                                     }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
                                 .tint(.red)
-                                Button { sessionToEdit = session } label: {
+                                Button {
+                                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                                    sessionToEdit = session
+                                } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
                                 .tint(.orange)
                                 Button {
+                                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                                     preselectedAttachSessionID = session.id
                                     showingOddsCalculator = true
                                 } label: {
@@ -83,8 +87,12 @@ struct SessionsListView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showingAddSession = true } label: { Label("Add Session", systemImage: "plus") }
                         Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                            showingAddSession = true
+                        } label: { Label("Add Session", systemImage: "plus") }
+                        Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             preselectedAttachSessionID = nil
                             showingOddsCalculator = true
                         } label: { Label("Add Hand", systemImage: "percent") }
@@ -107,6 +115,7 @@ struct SessionsListView: View {
             .sheet(isPresented: $showingFilters) {
                 FilterView()
                     .environmentObject(sessionStore)
+                    .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(item: $sessionToEdit) { session in EditSessionView(session: session) }
@@ -115,6 +124,7 @@ struct SessionsListView: View {
                 set: { if !$0 { sessionToDelete = nil } }
             )) {
                 Button("Cancel", role: .cancel) {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     sessionToDelete = nil
                 }
                 Button("Delete", role: .destructive) {
@@ -153,6 +163,7 @@ struct SessionsListView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     showingAddSession = true
                 } label: {
                     Label("Add Session", systemImage: "plus")
@@ -161,6 +172,7 @@ struct SessionsListView: View {
                         .padding(.vertical, 10)
                         .background(Capsule().fill(AppTheme.accent))
                         .foregroundStyle(.white)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
@@ -212,6 +224,7 @@ struct SessionsListView: View {
                 }
 
                 Button("Clear") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     sessionStore.clearFilters()
                 }
                 .font(.caption.weight(.semibold))
@@ -226,6 +239,7 @@ struct SessionsListView: View {
 struct FilterView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var settingsStore: SettingsStore
     @State private var gameType: GameType?
     @State private var variant: String?
     @State private var stakes: String?
@@ -289,6 +303,7 @@ struct FilterView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Clear") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         gameType = nil
                         variant = nil
                         stakes = nil
@@ -301,6 +316,7 @@ struct FilterView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         let finalFrom = useDateFrom ? dateFrom : nil
                         let finalTo = useDateTo ? dateTo : nil
                         if let from = finalFrom, let to = finalTo, from > to {

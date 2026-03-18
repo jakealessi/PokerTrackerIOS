@@ -37,8 +37,9 @@ struct DashboardView: View {
         sessionStore.sessions
     }
 
+    private var settingsDefaultDeductExpenses: Bool { settingsStore.settings.deductExpensesFromProfit }
     private var allSessionsProfit: Double {
-        allSessions.reduce(0) { $0 + $1.netAmount }
+        allSessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses)) }
     }
 
     private var allSessionsCount: Int {
@@ -86,7 +87,7 @@ struct DashboardView: View {
             metrics.append(
                 DashboardMetric(
                     label: hourlyRateLabel,
-                    value: PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency),
+                    value: formatCurrencyTwoDecimals(rate),
                     tint: rate >= 0 ? winColor : lossColor
                 )
             )
@@ -118,7 +119,10 @@ struct DashboardView: View {
                         .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showingAddSession = true } label: {
+                    Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        showingAddSession = true
+                    } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(AppTheme.accent)
@@ -135,6 +139,7 @@ struct DashboardView: View {
                     subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+                .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
@@ -149,37 +154,31 @@ struct DashboardView: View {
     }
     
     // MARK: - Stats Header
-    
+
+    private var startingBankroll: Double { settingsStore.settings.startingBankroll }
+    private var showProfitSeparately: Bool { startingBankroll != 0 }
+
     private var statsHeader: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("BANKROLL")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .kerning(0.8)
-                    Text(PokerSession.formatCurrency(bankroll, currency: settingsStore.settings.currency))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
-                        .contentTransition(.numericText())
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("PROFIT")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .kerning(0.8)
-                    Text(PokerSession.formatCurrency(allSessionsProfit, currency: settingsStore.settings.currency))
-                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("BANKROLL")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .kerning(0.8)
+                Text(formattedBankroll)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(bankroll >= 0 ? winColor : lossColor)
+                    .contentTransition(.numericText())
+                if showProfitSeparately {
+                    Text("Profit: \(formattedProfit)")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(allSessionsProfit >= 0 ? winColor : lossColor)
-                        .monospacedDigit()
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
 
             HStack(spacing: 0) {
                 ForEach(Array(dashboardMetrics.enumerated()), id: \.element.id) { index, metric in
@@ -205,6 +204,24 @@ struct DashboardView: View {
         .padding(.bottom, 8)
     }
 
+    private var formattedBankroll: String {
+        formatCurrencyTwoDecimals(bankroll)
+    }
+
+    private var formattedProfit: String {
+        let formatted = formatCurrencyTwoDecimals(abs(allSessionsProfit))
+        return allSessionsProfit >= 0 ? "+\(formatted)" : "-\(formatted)"
+    }
+
+    private func formatCurrencyTwoDecimals(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = settingsStore.settings.currency
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: value)) ?? PokerSession.formatCurrency(value, currency: settingsStore.settings.currency)
+    }
+
     private func metricColumn(_ metric: DashboardMetric) -> some View {
         VStack(spacing: 3) {
             Text(metric.value)
@@ -226,6 +243,7 @@ struct DashboardView: View {
                     emptyPrompt
                         .contentShape(Rectangle())
                         .onTapGesture {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             inputFocused = true
                         }
                 } else {
@@ -341,9 +359,10 @@ struct DashboardView: View {
     }
 
     private func assistantSessionCard(_ payload: ChatMessage.SessionCard, session: PokerSession) -> some View {
+        let deductExpenses = session.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses)
         let sessionTint: Color = {
-            if session.isWin { return winColor }
-            if session.isLoss { return lossColor }
+            if session.isWinForDisplay(deductExpenses: deductExpenses) { return winColor }
+            if session.isLossForDisplay(deductExpenses: deductExpenses) { return lossColor }
             return .secondary
         }()
 
@@ -359,6 +378,7 @@ struct DashboardView: View {
                 Spacer(minLength: 4)
 
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     chatEditSession = sessionStore.sessions.first(where: { $0.id == session.id }) ?? session
                 } label: {
                     Text("Edit")
@@ -370,11 +390,12 @@ struct DashboardView: View {
                             Capsule(style: .continuous)
                                 .fill(AppTheme.accent.opacity(0.1))
                         )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
 
-            Text(PokerSession.formatCurrency(session.netAmount, currency: settingsStore.settings.currency))
+            Text(PokerSession.formatCurrency(session.displayProfit(deductExpenses: deductExpenses), currency: settingsStore.settings.currency))
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(sessionTint)
                 .monospacedDigit()
@@ -391,7 +412,7 @@ struct DashboardView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            if session.hasExpenses || (payload.detail != nil && !payload.detail!.isEmpty) {
+            if session.hasExpenses || !(payload.detail ?? "").isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     if session.hasExpenses {
                         Text("Gross \(PokerSession.formatCurrency(session.amount, currency: settingsStore.settings.currency)) · Expenses \(PokerSession.formatCurrency(session.totalExpenses, currency: settingsStore.settings.currency))")
@@ -452,7 +473,10 @@ struct DashboardView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     if AISessionCrafterUsage.usesRemaining == 0 {
-                        Button("Upgrade") { showingPaywall = true }
+                        Button("Upgrade") {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                            showingPaywall = true
+                        }
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(AppTheme.accent)
                     }
@@ -466,6 +490,7 @@ struct DashboardView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 if !chatMessages.isEmpty {
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         aiTask?.cancel()
                         withAnimation(AppTheme.smoothSpring) {
                             chatMessages.removeAll()
@@ -518,6 +543,7 @@ struct DashboardView: View {
                 }
 
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     sendMessage()
                 } label: {
                     Image(systemName: "arrow.up")
@@ -669,8 +695,16 @@ struct DashboardView: View {
         if !usedOfflineParser, !subscriptionStore.isSubscribed {
             AISessionCrafterUsage.consumeOne()
         }
+        let effectiveAmount: Double
+        let isTournament = parsed.gameType == .tournament || parsed.gameType == .sitAndGo
+        if isTournament, let buyIn = parsed.buyIn, let cashOut = parsed.cashOut {
+            let effectiveBuyins = max(1, parsed.buyins ?? 1)
+            effectiveAmount = cashOut - (buyIn * Double(effectiveBuyins))
+        } else {
+            effectiveAmount = parsed.amount
+        }
         let session = PokerSession(
-            amount: parsed.amount,
+            amount: effectiveAmount,
             date: parsed.date ?? Date(),
             notes: parsed.notes ?? "",
             gameType: parsed.gameType,
@@ -686,22 +720,23 @@ struct DashboardView: View {
             buyIn: parsed.buyIn,
             cashOut: parsed.cashOut,
             tournamentPosition: parsed.tournamentPosition,
-            rebuys: parsed.rebuys,
+            buyins: parsed.buyins,
             handNotes: parsed.handNotes,
             tags: parsed.tags
         )
         sessionStore.addSession(session)
-        let num = sessionStore.displayNumber(for: session) ?? 0
+        let num = sessionStore.displayNumber(for: session)
+        let loggedText = num.map { "Session #\($0) logged" } ?? "Session logged"
         let detail = usedOfflineParser ? "Parsed offline because the AI service was unavailable." : nil
         withAnimation(AppTheme.smoothSpring) {
             chatMessages.append(
                 ChatMessage(
                     role: .assistant,
-                    text: "Session #\(num) logged",
+                    text: loggedText,
                     card: .session(
                         ChatMessage.SessionCard(
                             sessionID: session.id,
-                            headline: "Session #\(num) logged",
+                            headline: loggedText,
                             detail: detail,
                             systemImage: "sparkles"
                         )

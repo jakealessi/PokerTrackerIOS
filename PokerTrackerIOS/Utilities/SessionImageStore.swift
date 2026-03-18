@@ -11,8 +11,10 @@ enum SessionImageStore {
     private static let subdirectory = "SessionImages"
     
     static var imagesDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(subdirectory, isDirectory: true)
+        guard let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return FileManager.default.temporaryDirectory.appendingPathComponent(subdirectory, isDirectory: true)
+        }
+        return base.appendingPathComponent(subdirectory, isDirectory: true)
     }
     
     /// Save image data and return the assigned image ID (UUID string)
@@ -58,6 +60,9 @@ enum SessionImageStore {
         let maxDimension: CGFloat = 1200
         var scaled = image
         if image.size.width > maxDimension || image.size.height > maxDimension {
+            guard image.size.width > 0, image.size.height > 0 else {
+                return image.jpegData(compressionQuality: 0.8)
+            }
             let ratio = min(maxDimension / image.size.width, maxDimension / image.size.height)
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
             let renderer = UIGraphicsImageRenderer(size: size)

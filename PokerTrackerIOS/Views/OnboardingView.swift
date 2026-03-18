@@ -7,6 +7,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Binding var isComplete: Bool
+    @EnvironmentObject var settingsStore: SettingsStore
     
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +46,7 @@ struct OnboardingView: View {
             Spacer()
 
             Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 isComplete = true
             } label: {
                 Text("Get Started")
@@ -56,6 +58,7 @@ struct OnboardingView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(AppTheme.accent)
                     )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)

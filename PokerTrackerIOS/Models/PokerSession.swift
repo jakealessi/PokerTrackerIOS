@@ -56,13 +56,16 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var buyIn: Double?
     var cashOut: Double?
     var tournamentPosition: Int?
-    var rebuys: Int?
+    /// Total buy-ins (bullets). Default 1. Migrated from rebuys: buyins = (rebuys ?? 0) + 1.
+    var buyins: Int?
     var handNotes: String?
     var attachedHands: [AttachedHand]
     var startTime: Date?
     var endTime: Date?
     var imageIds: [String]
     var tags: [String]
+    /// When nil, use settings default. When set, overrides for this session.
+    var deductExpensesFromProfit: Bool?
     
     init(
         id: UUID = UUID(),
@@ -83,13 +86,14 @@ struct PokerSession: Identifiable, Codable, Equatable {
         buyIn: Double? = nil,
         cashOut: Double? = nil,
         tournamentPosition: Int? = nil,
-        rebuys: Int? = nil,
+        buyins: Int? = nil,
         handNotes: String? = nil,
         attachedHands: [AttachedHand] = [],
         startTime: Date? = nil,
         endTime: Date? = nil,
         imageIds: [String] = [],
-        tags: [String] = []
+        tags: [String] = [],
+        deductExpensesFromProfit: Bool? = nil
     ) {
         self.id = id
         self.sessionNumber = sessionNumber
@@ -109,15 +113,23 @@ struct PokerSession: Identifiable, Codable, Equatable {
         self.buyIn = buyIn
         self.cashOut = cashOut
         self.tournamentPosition = tournamentPosition
-        self.rebuys = rebuys
+        self.buyins = buyins
         self.handNotes = handNotes
         self.attachedHands = attachedHands
         self.startTime = startTime
         self.endTime = endTime
         self.imageIds = imageIds
         self.tags = tags
+        self.deductExpensesFromProfit = deductExpensesFromProfit
     }
     
+    enum CodingKeys: String, CodingKey {
+        case id, sessionNumber, amount, date, notes, gameType, variant, hoursPlayed, stakes, venue
+        case rake, tips, food, travel, fees, buyIn, cashOut, tournamentPosition
+        case buyins, rebuys
+        case handNotes, attachedHands, startTime, endTime, imageIds, tags, deductExpensesFromProfit
+    }
+
     // Migration: if sessionNumber is missing from old data, default to 0
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -139,13 +151,45 @@ struct PokerSession: Identifiable, Codable, Equatable {
         buyIn = try c.decodeIfPresent(Double.self, forKey: .buyIn)
         cashOut = try c.decodeIfPresent(Double.self, forKey: .cashOut)
         tournamentPosition = try c.decodeIfPresent(Int.self, forKey: .tournamentPosition)
-        rebuys = try c.decodeIfPresent(Int.self, forKey: .rebuys)
+        buyins = try c.decodeIfPresent(Int.self, forKey: .buyins)
+            ?? (try c.decodeIfPresent(Int.self, forKey: .rebuys).map { $0 + 1 })
         handNotes = try c.decodeIfPresent(String.self, forKey: .handNotes)
         attachedHands = try c.decodeIfPresent([AttachedHand].self, forKey: .attachedHands) ?? []
         startTime = try c.decodeIfPresent(Date.self, forKey: .startTime)
         endTime = try c.decodeIfPresent(Date.self, forKey: .endTime)
         imageIds = try c.decodeIfPresent([String].self, forKey: .imageIds) ?? []
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        deductExpensesFromProfit = try c.decodeIfPresent(Bool.self, forKey: .deductExpensesFromProfit)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(sessionNumber, forKey: .sessionNumber)
+        try c.encode(amount, forKey: .amount)
+        try c.encode(date, forKey: .date)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(gameType, forKey: .gameType)
+        try c.encodeIfPresent(variant, forKey: .variant)
+        try c.encodeIfPresent(hoursPlayed, forKey: .hoursPlayed)
+        try c.encodeIfPresent(stakes, forKey: .stakes)
+        try c.encodeIfPresent(venue, forKey: .venue)
+        try c.encodeIfPresent(rake, forKey: .rake)
+        try c.encodeIfPresent(tips, forKey: .tips)
+        try c.encodeIfPresent(food, forKey: .food)
+        try c.encodeIfPresent(travel, forKey: .travel)
+        try c.encodeIfPresent(fees, forKey: .fees)
+        try c.encodeIfPresent(buyIn, forKey: .buyIn)
+        try c.encodeIfPresent(cashOut, forKey: .cashOut)
+        try c.encodeIfPresent(tournamentPosition, forKey: .tournamentPosition)
+        try c.encodeIfPresent(buyins, forKey: .buyins)
+        try c.encodeIfPresent(handNotes, forKey: .handNotes)
+        try c.encode(attachedHands, forKey: .attachedHands)
+        try c.encodeIfPresent(startTime, forKey: .startTime)
+        try c.encodeIfPresent(endTime, forKey: .endTime)
+        try c.encode(imageIds, forKey: .imageIds)
+        try c.encode(tags, forKey: .tags)
+        try c.encodeIfPresent(deductExpensesFromProfit, forKey: .deductExpensesFromProfit)
     }
     
     var totalExpenses: Double {
@@ -156,6 +200,24 @@ struct PokerSession: Identifiable, Codable, Equatable {
 
     var netAmount: Double {
         amount - totalExpenses
+    }
+
+    /// Effective setting: session override ?? settings default.
+    func effectiveDeductExpenses(settingsDefault: Bool) -> Bool {
+        deductExpensesFromProfit ?? settingsDefault
+    }
+
+    /// Profit for display: netAmount when deducting expenses, otherwise gross amount.
+    func displayProfit(deductExpenses: Bool) -> Double {
+        deductExpenses ? netAmount : amount
+    }
+
+    func isWinForDisplay(deductExpenses: Bool) -> Bool {
+        displayProfit(deductExpenses: deductExpenses) > 0.0001
+    }
+
+    func isLossForDisplay(deductExpenses: Bool) -> Bool {
+        displayProfit(deductExpenses: deductExpenses) < -0.0001
     }
 
     var expenseEntries: [(label: String, amount: Double)] {
@@ -184,8 +246,8 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var tournamentROI: Double? {
         guard gameType == .tournament || gameType == .sitAndGo,
               let buyIn = buyIn, buyIn > 0 else { return nil }
-        let totalBuyIn = buyIn + Double(rebuys ?? 0) * buyIn
-        return totalBuyIn > 0 ? (netAmount / totalBuyIn) * 100 : nil
+        let totalCost = buyIn * Double(buyins ?? 1)
+        return totalCost > 0 ? (netAmount / totalCost) * 100 : nil
     }
     
     var formattedAmount: String {
@@ -195,7 +257,7 @@ struct PokerSession: Identifiable, Codable, Equatable {
     static func calculatedHours(from startTime: Date?, to endTime: Date?) -> Double? {
         guard let startTime, let endTime else { return nil }
         var duration = endTime.timeIntervalSince(startTime)
-        if duration <= 0 {
+        if duration < 0 {
             duration += 24 * 60 * 60
         }
         guard duration > 0 else { return nil }
@@ -249,27 +311,53 @@ struct PokerSession: Identifiable, Codable, Equatable {
     }
     
     static func formatCurrency(_ value: Double, currency: String = "USD") -> String {
+        guard value.isFinite else {
+            return formatCurrencyFallback(0, currency: currency)
+        }
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
+        formatter.locale = Locale(identifier: SupportedCurrency.localeIdentifier(for: currency))
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? "\(SupportedCurrency.symbol(for: currency))\(String(format: "%.2f", value))"
+        return formatter.string(from: NSNumber(value: value)) ?? formatCurrencyFallback(value, currency: currency)
     }
-    
+
+    private static func formatCurrencyFallback(_ value: Double, currency: String) -> String {
+        let symbol = SupportedCurrency.symbol(for: currency)
+        let formatted = String(format: "%.2f", value)
+        return SupportedCurrency.symbolBeforeAmount(for: currency)
+            ? "\(symbol)\(formatted)"
+            : "\(formatted) \(symbol)"
+    }
+
     /// Compact format for calendars: <$100 shows 1 decimal if cents, $100–999 integer if whole, $1000+ uses K
     static func formatCompactCurrency(_ value: Double, currency: String = "USD") -> String {
+        guard value.isFinite else {
+            return formatCompactFallback(0, currency: currency)
+        }
         let absVal = abs(value)
         let symbol = SupportedCurrency.symbol(for: currency)
+        let before = SupportedCurrency.symbolBeforeAmount(for: currency)
         let hasCents = absVal != floor(absVal)
+        let numStr: String
         if absVal < 100 {
-            return hasCents ? "\(symbol)\(String(format: "%.1f", absVal))" : "\(symbol)\(Int(absVal))"
+            numStr = hasCents ? String(format: "%.1f", absVal) : String(Int(absVal))
         } else if absVal < 1000 {
-            return hasCents ? "\(symbol)\(String(format: "%.2f", absVal))" : "\(symbol)\(Int(absVal))"
+            numStr = hasCents ? String(format: "%.2f", absVal) : String(Int(absVal))
         } else {
             let k = absVal / 1000
-            return k == floor(k) ? "\(symbol)\(Int(k))K" : "\(symbol)\(String(format: "%.1f", k))K"
+            numStr = k == floor(k) ? "\(Int(k))K" : String(format: "%.1f", k) + "K"
         }
+        return before ? "\(symbol)\(numStr)" : "\(numStr) \(symbol)"
+    }
+
+    private static func formatCompactFallback(_ value: Double, currency: String) -> String {
+        let symbol = SupportedCurrency.symbol(for: currency)
+        let numStr = value == floor(value) ? String(Int(value)) : String(format: "%.1f", value)
+        return SupportedCurrency.symbolBeforeAmount(for: currency)
+            ? "\(symbol)\(numStr)"
+            : "\(numStr) \(symbol)"
     }
 }
 
@@ -400,6 +488,7 @@ enum StakesPreset: String, CaseIterable {
     case micro1 = ".1/.2"
     case micro2 = ".25/.50"
     case low1 = ".50/1"
+    case low2 = "1/2"
     case mid1 = "2/5"
     case mid2 = "5/10"
     case high = "10/20"
@@ -422,16 +511,19 @@ enum StakesPreset: String, CaseIterable {
         SupportedCurrency.symbol(for: currency)
     }
     
-    /// Stored value with currency symbol: X/Y format
+    /// Stored value with currency symbol: X/Y format (respects symbol placement)
     func storedValue(currency: String = "USD") -> String {
         let sym = Self.symbol(for: currency)
+        let before = SupportedCurrency.symbolBeforeAmount(for: currency)
+        func part(_ n: String) -> String { before ? "\(sym)\(n)" : "\(n) \(sym)" }
         switch self {
-        case .micro1: return "\(sym)0.10/\(sym)0.20"
-        case .micro2: return "\(sym)0.25/\(sym)0.50"
-        case .low1: return "\(sym)0.50/\(sym)1"
-        case .mid1: return "\(sym)2/\(sym)5"
-        case .mid2: return "\(sym)5/\(sym)10"
-        case .high: return "\(sym)10/\(sym)20"
+        case .micro1: return "\(part("0.10"))/\(part("0.20"))"
+        case .micro2: return "\(part("0.25"))/\(part("0.50"))"
+        case .low1: return "\(part("0.50"))/\(part("1"))"
+        case .low2: return "\(part("1"))/\(part("2"))"
+        case .mid1: return "\(part("2"))/\(part("5"))"
+        case .mid2: return "\(part("5"))/\(part("10"))"
+        case .high: return "\(part("10"))/\(part("20"))"
         }
     }
 }

@@ -115,6 +115,12 @@ CRITICAL — AMOUNT EXTRACTION (READ CAREFULLY):
 - If user says "bought in for X, cashed out for Y", compute amount as Y - X.
 - Positive amount = win, negative = loss.
 - WHEN IN DOUBT: use the number attached to "made/won/lost/down/up" at the START of the message, not numbers mentioned as past peaks.
+- For tournaments: "buyins" = total buy-ins/bullets (default 1). "3 bullets", "2 rebuys" → buyins = 3. When buyIn and cashOut are present, compute amount = cashOut - (buyIn × buyins).
+
+EXPENSES & FEES:
+- Track separately when the user mentions: rake, tips, food, travel, fees. Return as POSITIVE numbers.
+- Examples: "tipped 20" → tips = 20, "paid 15 in rake" → rake = 15, "spent 12 on food" → food = 12, "uber was 18" → travel = 18.
+- Do NOT subtract expenses from amount. The app calculates net impact.
 
 NOTES & HAND NOTES:
 - Any extra context the user provides beyond the core session data (amount, stakes, hours, venue, variant) should go into "notes".
@@ -147,14 +153,14 @@ RULES FOR NEW SESSIONS:
 - If the user gives ONLY an amount (e.g. "won 50" or "lost 200") with no other details, ask a SHORT friendly question to get more info. Ask about 2-3 things at once (like stakes, game type, hours, venue).
 - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
 - When you have enough info, respond with ONLY a JSON object:
-  {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
+  {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "rake": number|null, "tips": number|null, "food": number|null, "travel": number|null, "fees": number|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "buyins": number|null, "handNotes": string|null, "tags": [string]}
 - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
 - Default variant to "No Limit Hold'em" and format to "Cash Game" if not mentioned.
 
 RULES FOR UPDATES:
 - If the user says something like "update session 3" or "change session #5 stakes to 2/5", respond with:
   {"action": "update", "sessionNumber": number, "fields": {"fieldName": newValue, ...}}
-- Valid field names: amount, hoursPlayed, stakes, venue, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
+- Valid field names: amount, hoursPlayed, stakes, venue, rake, tips, food, travel, fees, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, buyins, handNotes, tags
 - If the user wants to update but doesn't specify which session, ask them which session number.
 
 GENERAL RULES:
@@ -335,19 +341,34 @@ function classifyResponse(rawText: string): NormalizedResponse {
     return { resultType: "followUp", text: cleaned };
   }
 
+  const buyIn = toNumber(parsed.buyIn);
+  const cashOut = toNumber(parsed.cashOut);
+  const buyins = parseBuyins(parsed);
+  const gameFormat = (parsed.gameFormat as string) ?? (parsed.gameType as string) ?? "Cash Game";
+  const isTournament = gameFormat === "Tournament" || gameFormat === "Sit & Go";
+  const effectiveAmount =
+    isTournament && buyIn != null && cashOut != null
+      ? cashOut - buyIn * Math.max(1, buyins ?? 1)
+      : amount;
+
   const session: Record<string, unknown> = {
-    amount,
+    amount: effectiveAmount,
     hoursPlayed: toNumber(parsed.hoursPlayed) ?? null,
     stakes: parsed.stakes ?? null,
     venue: parsed.venue ?? null,
-    gameFormat: parsed.gameFormat ?? parsed.gameType ?? "Cash Game",
+    rake: toPositiveNumber(parsed.rake) ?? null,
+    tips: toPositiveNumber(parsed.tips) ?? null,
+    food: toPositiveNumber(parsed.food) ?? null,
+    travel: toPositiveNumber(parsed.travel) ?? null,
+    fees: toPositiveNumber(parsed.fees) ?? null,
+    gameFormat,
     variant: parsed.variant ?? null,
     notes: parsed.notes ?? null,
-    buyIn: toNumber(parsed.buyIn) ?? null,
-    cashOut: toNumber(parsed.cashOut) ?? null,
+    buyIn: buyIn ?? null,
+    cashOut: cashOut ?? null,
     date: parsed.date ?? null,
     tournamentPosition: toNumber(parsed.tournamentPosition) ?? null,
-    rebuys: toNumber(parsed.rebuys) ?? null,
+    buyins,
     handNotes: parsed.handNotes ?? null,
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],
   };
@@ -372,6 +393,20 @@ function toNumber(v: unknown): number | null {
   return null;
 }
 
+function toPositiveNumber(v: unknown): number | null {
+  const n = toNumber(v);
+  if (n == null || n <= 0) return null;
+  return n;
+}
+
+function parseBuyins(parsed: Record<string, unknown>): number | null {
+  const buyins = toNumber(parsed.buyins);
+  if (buyins != null && buyins >= 1) return Math.min(12, buyins);
+  const rebuys = toNumber(parsed.rebuys);
+  if (rebuys != null && rebuys >= 0) return Math.min(12, rebuys + 1);
+  return null;
+}
+
 function isLoggable(s: Record<string, unknown>): boolean {
   const hasDetail =
     s.hoursPlayed != null ||
@@ -379,11 +414,12 @@ function isLoggable(s: Record<string, unknown>): boolean {
     hasText(s.venue) ||
     hasText(s.notes) ||
     hasText(s.variant) ||
+    (s.gameFormat && s.gameFormat !== "Cash Game") ||
     s.buyIn != null ||
     s.cashOut != null ||
     s.date != null ||
     s.tournamentPosition != null ||
-    s.rebuys != null ||
+    s.buyins != null ||
     hasText(s.handNotes);
   return hasDetail;
 }
@@ -487,9 +523,11 @@ async function handleSessionCrafter(request: Request, env: Env): Promise<Respons
 
   try {
     let rawText: string;
+    const openAIKey = env.OPENAI_API_KEY;
 
     if (preferredProvider === "openai" && hasOpenAI) {
-      rawText = await withRetry(() => callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!));
+      if (!openAIKey) return jsonErr("provider_error", "OpenAI key not configured", 502);
+      rawText = await withRetry(() => callOpenAI(fullMessages, systemPrompt, openAIKey));
     } else if (hasGemini) {
       try {
         rawText = await withRetry(() => callGemini(fullMessages, systemPrompt, env.GEMINI_API_KEY));
@@ -498,24 +536,25 @@ async function handleSessionCrafter(request: Request, env: Env): Promise<Respons
           try {
             rawText = await callGemini(fullMessages, systemPrompt, env.GEMINI_API_KEY, GEMINI_MODEL_BASIC);
           } catch (fallbackErr) {
-            if (hasOpenAI) {
+            if (hasOpenAI && openAIKey) {
               rawText = await withRetry(() =>
-                callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!),
+                callOpenAI(fullMessages, systemPrompt, openAIKey),
               );
             } else {
               throw fallbackErr;
             }
           }
-        } else if (hasOpenAI) {
+        } else if (hasOpenAI && openAIKey) {
           rawText = await withRetry(() =>
-            callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!),
+            callOpenAI(fullMessages, systemPrompt, openAIKey),
           );
         } else {
           throw err;
         }
       }
     } else {
-      rawText = await withRetry(() => callOpenAI(fullMessages, systemPrompt, env.OPENAI_API_KEY!));
+      if (!openAIKey) return jsonErr("provider_error", "OpenAI key not configured", 502);
+      rawText = await withRetry(() => callOpenAI(fullMessages, systemPrompt, openAIKey));
     }
 
     const result = classifyResponse(rawText);

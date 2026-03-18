@@ -24,7 +24,7 @@ enum SessionParserService {
         let cashOut: Double?
         let date: Date?
         let tournamentPosition: Int?
-        let rebuys: Int?
+        let buyins: Int?
     }
 
     private struct AmountCandidate {
@@ -54,6 +54,7 @@ enum SessionParserService {
     }()
     private static let stakeComponentPattern = #"(?:\d+(?:\.\d+)?|\.\d+)"#
     private static let stakesPairPattern = "\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))\\s*[/\\-]\\s*\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))"
+    private static let stakesTriplePattern = "\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))\\s*[/\\-]\\s*\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))\\s*[/\\-]\\s*\(optionalCurrencyPrefixPattern)(\(stakeComponentPattern))"
     private static let numberCapturePattern = #"(\(?[+\-]?\s*"# + optionalCurrencyPrefixPattern + #"[\d,]+(?:\.\d+)?[kKmM]?\)?)"#
 
     static func parseNumericValue(from text: String) -> Double? {
@@ -232,7 +233,7 @@ enum SessionParserService {
             cashOut: parseCashOut(from: normalized),
             date: parseDate(from: normalized, relativeTo: referenceDate),
             tournamentPosition: parseTournamentPosition(from: normalized),
-            rebuys: parseRebuys(from: normalized)
+            buyins: parseBuyins(from: normalized)
         )
     }
     
@@ -240,7 +241,7 @@ enum SessionParserService {
         let lowercased = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !lowercased.isEmpty else { return nil }
         guard let signals = extractSignals(from: lowercased, relativeTo: referenceDate) else { return nil }
-        guard let amount = parseAmount(from: lowercased, buyIn: signals.buyIn, cashOut: signals.cashOut, rebuys: signals.rebuys) else { return nil }
+        guard let amount = parseAmount(from: lowercased, buyIn: signals.buyIn, cashOut: signals.cashOut, buyins: signals.buyins) else { return nil }
 
         return ParsedSession(
             amount: amount,
@@ -259,7 +260,7 @@ enum SessionParserService {
             cashOut: signals.cashOut,
             date: signals.date,
             tournamentPosition: signals.tournamentPosition,
-            rebuys: signals.rebuys,
+            buyins: signals.buyins,
             handNotes: nil,
             tags: []
         )
@@ -267,7 +268,11 @@ enum SessionParserService {
     
     // MARK: - Amount
     
-    private static func parseAmount(from text: String, buyIn: Double?, cashOut: Double?, rebuys: Int?) -> Double? {
+    private static func parseAmount(from text: String, buyIn: Double?, cashOut: Double?, buyins: Int?) -> Double? {
+        let effectiveBuyins = buyins ?? 1
+        if let buyIn, let cashOut, effectiveBuyins > 0 {
+            return cashOut - (buyIn * Double(effectiveBuyins))
+        }
         var candidates: [AmountCandidate] = []
 
         appendAmountMatches(
@@ -351,10 +356,6 @@ enum SessionParserService {
             return best.value
         }
 
-        if let buyIn, let cashOut {
-            return cashOut - (buyIn * Double((rebuys ?? 0) + 1))
-        }
-
         return nil
     }
 
@@ -380,8 +381,8 @@ enum SessionParserService {
             return timeRangeHours
         }
 
-        if let hours = extractFlexibleNumber(using: #"(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|hr|h)\s*(\d{1,2})\s*(?:minutes?|mins?|min|m)\b"#, primaryGroup: 1, in: text),
-           let minutes = extractFlexibleNumber(using: #"(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|hr|h)\s*(\d{1,2})\s*(?:minutes?|mins?|min|m)\b"#, primaryGroup: 2, in: text) {
+        let hoursMinutesPattern = #"(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|hr|h)\s*(\d{1,2})\s*(?:minutes?|mins?|min|m)\b"#
+        if let (hours, minutes) = extractTwoNumbers(using: hoursMinutesPattern, in: text) {
             return hours + (minutes / 60)
         }
 
@@ -450,9 +451,28 @@ enum SessionParserService {
     // MARK: - Stakes
     
     private static func parseStakes(from text: String) -> String? {
-        if let regex = try? NSRegularExpression(pattern: stakesPairPattern) {
-            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-            for match in matches {
+        if let tripleRegex = try? NSRegularExpression(pattern: stakesTriplePattern) {
+            let tripleMatches = tripleRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in tripleMatches {
+                guard let r1 = Range(match.range(at: 1), in: text),
+                      let r2 = Range(match.range(at: 2), in: text),
+                      let r3 = Range(match.range(at: 3), in: text) else {
+                    continue
+                }
+                let fullText = (text as NSString).substring(with: match.range(at: 0))
+                guard isLikelyStakesExpression(fullText, matchRange: match.range(at: 0), in: text) else {
+                    continue
+                }
+                let smallBlind = normalizeStakeComponent(String(text[r1]))
+                let bigBlind = normalizeStakeComponent(String(text[r2]))
+                let straddle = normalizeStakeComponent(String(text[r3]))
+                let currencyCode = resolvedStakeCurrencyCode(from: fullText) ?? "USD"
+                return formatStakesOutput(small: smallBlind, big: bigBlind, straddle: straddle, currencyCode: currencyCode)
+            }
+        }
+        if let pairRegex = try? NSRegularExpression(pattern: stakesPairPattern) {
+            let pairMatches = pairRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in pairMatches {
                 guard let r1 = Range(match.range(at: 1), in: text),
                       let r2 = Range(match.range(at: 2), in: text) else {
                     continue
@@ -463,8 +483,8 @@ enum SessionParserService {
                 }
                 let smallBlind = normalizeStakeComponent(String(text[r1]))
                 let bigBlind = normalizeStakeComponent(String(text[r2]))
-                let symbol = resolvedStakeCurrencySymbol(from: fullText) ?? "$"
-                return "\(symbol)\(smallBlind)/\(symbol)\(bigBlind)"
+                let currencyCode = resolvedStakeCurrencyCode(from: fullText) ?? "USD"
+                return formatStakesOutput(small: smallBlind, big: bigBlind, straddle: "", currencyCode: currencyCode)
             }
         }
         return nil
@@ -1007,6 +1027,19 @@ enum SessionParserService {
         return parseNumericValue(from: String(text[range]))
     }
 
+    /// Extracts two numeric values from the first regex match (groups 1 and 2). Guarantees both come from the same match.
+    private static func extractTwoNumbers(using pattern: String, in text: String) -> (Double, Double)? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range1 = Range(match.range(at: 1), in: text),
+              let range2 = Range(match.range(at: 2), in: text),
+              let a = parseNumericValue(from: String(text[range1])),
+              let b = parseNumericValue(from: String(text[range2])) else {
+            return nil
+        }
+        return (a, b)
+    }
+
     private static func parseClockTimeRange(from text: String) -> Double? {
         let pattern = #"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|–)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -1094,29 +1127,40 @@ enum SessionParserService {
         ).flatMap(parseOrdinalValue(from:))
     }
 
-    private static func parseRebuys(from text: String) -> Int? {
-        if let countToken = extractMatch(
-            using: #"\b(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+re-?buys?\b"#,
+    /// Parses total buy-ins (bullets). Returns 1–12. Nil if not found.
+    private static func parseBuyins(from text: String) -> Int? {
+        if let token = extractMatch(
+            using: #"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+bullets?\b"#,
             in: text
-        ), let count = parseCountValue(from: countToken) {
-            return count
+        ), let n = parseCountValue(from: token), n > 0, hasTournamentContext(in: text) {
+            return min(12, max(1, n))
         }
-        if let countToken = extractMatch(
-            using: #"\brebought\s+(\d+|once|twice|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s+times?)?\b"#,
-            in: text
-        ), let count = parseCountValue(from: countToken) {
-            return count
-        }
-        if let bulletToken = extractMatch(
+        if let token = extractMatch(
             using: #"\b(?:fired|used|took)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+bullets?\b"#,
             in: text
-        ), let bullets = parseCountValue(from: bulletToken),
-           bullets > 0,
-           hasTournamentContext(in: text) {
-            return max(0, bullets - 1)
+        ), let n = parseCountValue(from: token), n > 0, hasTournamentContext(in: text) {
+            return min(12, max(1, n))
+        }
+        if let token = extractMatch(
+            using: #"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+buy-?ins?\b"#,
+            in: text
+        ), let n = parseCountValue(from: token), n > 0, hasTournamentContext(in: text) {
+            return min(12, max(1, n))
+        }
+        if let token = extractMatch(
+            using: #"\b(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+re-?buys?\b"#,
+            in: text
+        ), let rebuys = parseCountValue(from: token), rebuys >= 0 {
+            return min(12, max(1, rebuys + 1))
+        }
+        if let token = extractMatch(
+            using: #"\brebought\s+(\d+|once|twice|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s+times?)?\b"#,
+            in: text
+        ), let rebuys = parseCountValue(from: token), rebuys >= 0 {
+            return min(12, max(1, rebuys + 1))
         }
         if text.contains("one rebuy") || text.contains("1 rebuy") {
-            return 1
+            return 2
         }
         return nil
     }
@@ -1318,7 +1362,7 @@ enum SessionParserService {
         var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let trailingNoisePatterns = [
             #"\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:to|-|–)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*$"#,
-            #"\s+"# + stakesPairPattern + #"\s*$"#,
+            #"\s+(?:"# + stakesTriplePattern + "|" + stakesPairPattern + #")\s*$"#,
             #"\s+(?:plo(?:5)?|nlh|hold(?:'em|em|\s+em)|omaha(?:\s+hi[\s-]*lo)?|o8|razz|badugi|stud|tournament|sng)\s*$"#,
             #"\s+(?:today|tonight|yesterday|last\s+night|this\s+(?:morning|afternoon|evening))\s*$"#,
             #"\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?:\s+(?:night|morning|afternoon|evening))?\s*$"#,
@@ -1370,14 +1414,24 @@ enum SessionParserService {
         return supportedCurrencyTokens.contains(where: normalized.contains)
     }
 
-    private static func resolvedStakeCurrencySymbol(from value: String) -> String? {
+    private static func resolvedStakeCurrencyCode(from value: String) -> String? {
         let normalized = value.lowercased()
         for currency in SupportedCurrency.all {
             if normalized.contains(currency.symbol.lowercased()) || normalized.contains(currency.code.lowercased()) {
-                return currency.symbol
+                return currency.code
             }
         }
         return nil
+    }
+
+    private static func formatStakesOutput(small: String, big: String, straddle: String, currencyCode: String) -> String {
+        let sym = SupportedCurrency.symbol(for: currencyCode)
+        let before = SupportedCurrency.symbolBeforeAmount(for: currencyCode)
+        func part(_ n: String) -> String { before ? "\(sym)\(n)" : "\(n) \(sym)" }
+        if straddle.isEmpty {
+            return "\(part(small))/\(part(big))"
+        }
+        return "\(part(small))/\(part(big))/\(part(straddle))"
     }
 
     private static func parseCountValue(from text: String) -> Int? {

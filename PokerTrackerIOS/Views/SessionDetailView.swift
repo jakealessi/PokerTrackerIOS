@@ -39,21 +39,25 @@ struct SessionDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         showingEdit = true
                     } label: {
                         Label("Edit", systemImage: "pencil")
                     }
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         showingOddsCalculator = true
                     } label: {
                         Label("Add Hand", systemImage: "percent")
                     }
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         presentShareSheet(items: sessionShareItems)
                     } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     Button(role: .destructive) {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         if settingsStore.settings.confirmBeforeDelete {
                             showingDeleteConfirm = true
                         } else {
@@ -88,6 +92,7 @@ struct SessionDetailView: View {
         .alert("Delete Session?", isPresented: $showingDeleteConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 sessionStore.deleteSession(s)
                 dismiss()
             }
@@ -96,10 +101,11 @@ struct SessionDetailView: View {
         }
     }
     
+    private var deductExpenses: Bool { currentSession.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit) }
     private var resultColor: Color {
         let s = currentSession
-        if s.isWin { return settingsStore.settings.profitLossColorScheme.winColor }
-        if s.isLoss { return settingsStore.settings.profitLossColorScheme.lossColor }
+        if s.isWinForDisplay(deductExpenses: deductExpenses) { return settingsStore.settings.profitLossColorScheme.winColor }
+        if s.isLossForDisplay(deductExpenses: deductExpenses) { return settingsStore.settings.profitLossColorScheme.lossColor }
         return .secondary
     }
 
@@ -113,11 +119,11 @@ struct SessionDetailView: View {
                     .foregroundStyle(.secondary)
                     .kerning(1)
             }
-            Text(formattedAmount(s.netAmount))
+            Text(formattedAmount(s.displayProfit(deductExpenses: deductExpenses)))
                 .font(.system(size: 40, weight: .bold, design: .rounded))
                 .foregroundStyle(resultColor)
                 .contentTransition(.numericText())
-            Text(s.hasExpenses ? "Net bankroll change" : "Session result")
+            Text(deductExpenses && s.hasExpenses ? "Net bankroll change" : "Session result")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
             if s.hasExpenses {
@@ -181,8 +187,16 @@ struct SessionDetailView: View {
                 }
             }
 
-            if s.hasExpenses {
-                detailCard(title: "Expenses") {
+            detailCard(title: "Expenses") {
+                Toggle("Deduct expenses from profit", isOn: Binding(
+                    get: { s.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
+                    set: { newValue in
+                        var updated = currentSession
+                        updated.deductExpensesFromProfit = newValue
+                        sessionStore.updateSession(updated)
+                    }
+                ))
+                if s.hasExpenses {
                     detailRow("Gross Result", formattedAmount(s.amount))
                     ForEach(s.expenseEntries, id: \.label) { entry in
                         detailRow(entry.label, formattedUnsignedAmount(entry.amount))
@@ -194,7 +208,7 @@ struct SessionDetailView: View {
             
             // Tournament stats
             if s.gameType == .tournament || s.gameType == .sitAndGo {
-                let hasTournamentData = s.buyIn != nil || s.cashOut != nil || s.tournamentPosition != nil || (s.rebuys ?? 0) > 0 || s.tournamentROI != nil || s.hoursPlayed != nil
+                let hasTournamentData = s.buyIn != nil || s.cashOut != nil || s.tournamentPosition != nil || (s.buyins ?? 1) > 1 || s.tournamentROI != nil || s.hoursPlayed != nil
                 if hasTournamentData {
                     detailCard(title: "Tournament") {
                         if let buyIn = s.buyIn {
@@ -206,8 +220,8 @@ struct SessionDetailView: View {
                         if let pos = s.tournamentPosition {
                             detailRow("Position", "\(pos)")
                         }
-                        if let rebuys = s.rebuys, rebuys > 0 {
-                            detailRow("Rebuys", "\(rebuys)")
+                        if let buyins = s.buyins, buyins > 1 {
+                            detailRow("Buy-ins", "\(buyins)")
                         }
                         if let roi = s.tournamentROI {
                             detailRow("ROI", String(format: "%.0f%%", roi))
@@ -310,6 +324,7 @@ struct SessionDetailView: View {
                         .cornerRadius(12)
                         .contentShape(Rectangle())
                         .onTapGesture {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             fullScreenImageIndex = index
                         }
                 }
@@ -422,7 +437,7 @@ struct SessionDetailView: View {
     private var sessionShareText: String {
         let s = currentSession
         var lines = [
-            "\(s.displayVariantAbbreviation) \(s.displayGameTypeAbbreviation) • \(formattedAmount(s.netAmount))",
+            "\(s.displayVariantAbbreviation) \(s.displayGameTypeAbbreviation) • \(formattedAmount(s.displayProfit(deductExpenses: deductExpenses)))",
             s.date.formatted(date: .long, time: .omitted)
         ]
         if s.hasExpenses {
@@ -464,10 +479,11 @@ struct SessionDetailView: View {
     }
 
     private func presentShareSheet(items: [Any]) {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
-              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
+        guard !items.isEmpty else { return }
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let foregroundScene = scenes.first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
+        let sceneToUse = foregroundScene ?? scenes.first
+        guard let root = sceneToUse?.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
         if let popover = vc.popoverPresentationController {
             popover.sourceView = root.view
@@ -490,16 +506,22 @@ struct FullScreenPhotoViewer: View {
     @State private var currentIndex: Int
     
     init(imageIds: [String], selectedIndex: Int, onDismiss: @escaping () -> Void) {
+        let clampedIndex = imageIds.isEmpty ? 0 : min(max(selectedIndex, 0), imageIds.count - 1)
         self.imageIds = imageIds
-        self.selectedIndex = selectedIndex
+        self.selectedIndex = clampedIndex
         self.onDismiss = onDismiss
-        _currentIndex = State(initialValue: selectedIndex)
+        _currentIndex = State(initialValue: clampedIndex)
     }
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
+            if imageIds.isEmpty {
+                Button("Done") { onDismiss() }
+                    .font(.headline)
+                    .foregroundStyle(.white)
+            } else {
             TabView(selection: $currentIndex) {
                 ForEach(Array(imageIds.enumerated()), id: \.element) { index, imageId in
                     SessionImageView(imageId: imageId)
@@ -509,6 +531,7 @@ struct FullScreenPhotoViewer: View {
             }
             .tabViewStyle(.page(indexDisplayMode: imageIds.count > 1 ? .automatic : .never))
             .ignoresSafeArea()
+            }
             
             VStack {
                 HStack {

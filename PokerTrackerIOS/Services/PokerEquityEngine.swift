@@ -54,12 +54,12 @@ struct EquityResult {
     let totalRunouts: Int
 
     func winPercent(forHand i: Int) -> Double {
-        guard totalRunouts > 0 else { return 0 }
+        guard totalRunouts > 0, wins.indices.contains(i) else { return 0 }
         return Double(wins[i]) / Double(totalRunouts) * 100
     }
 
     func tiePercent(forHand i: Int) -> Double {
-        guard totalRunouts > 0 else { return 0 }
+        guard totalRunouts > 0, ties.indices.contains(i) else { return 0 }
         return ties[i] / Double(totalRunouts) * 100
     }
 }
@@ -69,7 +69,7 @@ struct EquityResult {
 struct HandEvaluator {
     /// Returns a comparable value; higher = better hand
     static func rank(_ five: [PlayingCard]) -> UInt64 {
-        precondition(five.count == 5)
+        guard five.count == 5 else { return 0 }
         return rank(five[0], five[1], five[2], five[3], five[4])
     }
 
@@ -242,8 +242,13 @@ struct PokerEquityEngine {
         }
 
         mutating func nextInt(upperBound: Int) -> Int {
-            precondition(upperBound > 0)
-            return Int(nextUInt64() % UInt64(upperBound))
+            guard upperBound > 0 else { return 0 }
+            let bound = UInt64(upperBound)
+            let threshold = (UInt64.max - bound + 1) % bound
+            while true {
+                let r = nextUInt64()
+                if r >= threshold { return Int(r % bound) }
+            }
         }
     }
 

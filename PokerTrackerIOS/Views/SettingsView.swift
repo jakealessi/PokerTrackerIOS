@@ -13,6 +13,7 @@ struct SettingsView: View {
         case newQuickVenue
         case startingBankroll
         case defaultStakes
+        case newCustomStakes
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -31,6 +32,8 @@ struct SettingsView: View {
     @State private var restoreResultMessage = ""
     @State private var showingPaywall = false
     @State private var newQuickVenue = ""
+    @State private var newCustomStakes = ""
+    @State private var showingCustomDefaultStakesField = false
     @FocusState private var focusedField: FocusField?
 
     private var appVersionText: String {
@@ -48,35 +51,6 @@ struct SettingsView: View {
         default:
             return "Unknown"
         }
-    }
-
-    private var selectedVariantText: String {
-        settingsStore.settings.defaultVariant ?? PokerVariant.noLimitHoldem.rawValue
-    }
-
-    private var selectedCurrencyText: String {
-        let code = settingsStore.settings.currency
-        return "\(code) · \(SupportedCurrency.symbol(for: code))"
-    }
-
-    private var startingBankrollText: String {
-        settingsStore.settings.displayUnsignedAmount(settingsStore.settings.startingBankroll)
-    }
-
-    private var activeStakesPresetCount: Int {
-        StakesPreset.enabledPresets(from: settingsStore.settings.enabledStakesPresets).count
-    }
-
-    private var trackerDefaultsText: String {
-        var parts = [settingsStore.settings.defaultGameType.rawValue, selectedVariantText]
-        if let defaultStakes = normalizedText(settingsStore.settings.defaultStakes) {
-            parts.append(defaultStakes)
-        }
-        return parts.joined(separator: " • ")
-    }
-
-    private var quickButtonsText: String {
-        "\(activeStakesPresetCount) stakes • \(venueQuickOptions.count) venues"
     }
 
     private var aiModeText: String {
@@ -97,41 +71,26 @@ struct SettingsView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    settingsOverviewCard
-                    trackerSetupSection
-                    quickButtonsSection
-                    premiumAndAISection
-                    appearanceAndBehaviorSection
-                    dataAndSafetySection
-                    helpAndSupportSection
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 40)
+            Form {
+                trackerSection
+                quickButtonsSection
+                displaySection
+                premiumAndAISection
+                dataSection
+                aboutSection
             }
-            .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
-            .background(Color(UIColor.systemGroupedBackground))
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Settings")
-                        .font(.headline.weight(.semibold))
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
                         focusedField = nil
                     }
-                    .font(.subheadline.weight(.semibold))
                 }
             }
             .sheet(isPresented: $showingPaywall) {
@@ -140,6 +99,7 @@ struct SettingsView: View {
                     subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+                .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingExportSheet) {
                 ExportSheet(data: exportData)
@@ -174,6 +134,7 @@ struct SettingsView: View {
                     pendingRestoreData = nil
                 }
                 Button("Replace", role: .destructive) {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     performRestore()
                 }
             } message: {
@@ -184,581 +145,302 @@ struct SettingsView: View {
             } message: {
                 Text(restoreResultMessage)
             }
+            .onAppear {
+                showingCustomDefaultStakesField = isCustomDefaultStakes
+            }
         }
     }
 
-    private var settingsOverviewCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Set Up Your Tracker")
-                        .font(.title3.weight(.bold))
-                    Text("Make new sessions faster to log, keep results readable, and protect your data.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill((subscriptionStore.isSubscribed ? Color.yellow : AppTheme.accent).opacity(subscriptionStore.isSubscribed ? 0.18 : 0.10))
-                            .frame(width: 52, height: 52)
-                        Image(systemName: subscriptionStore.isSubscribed ? "crown.fill" : "slider.horizontal.3")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(subscriptionStore.isSubscribed ? Color.yellow : AppTheme.accent)
-                    }
-
-                    settingsInfoBadge(
-                        subscriptionStore.isSubscribed ? "Premium" : "Standard",
-                        tint: subscriptionStore.isSubscribed ? .green : AppTheme.accent,
-                        fill: subscriptionStore.isSubscribed ? Color.green.opacity(0.14) : AppTheme.accent.opacity(0.12)
-                    )
-                }
-            }
-
-            settingsHighlightRow(
-                title: "New Session Defaults",
-                value: trackerDefaultsText,
-                systemImage: "wand.and.stars",
-                tint: AppTheme.accent
-            )
-
-            settingsHighlightRow(
-                title: "Quick Buttons",
-                value: quickButtonsText,
-                systemImage: "square.grid.2x2",
-                tint: .teal
-            )
-
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                overviewMetricTile(title: "Starting Roll", value: startingBankrollText)
-                overviewMetricTile(title: "AI Mode", value: aiModeText)
-                overviewMetricTile(title: "Sessions", value: "\(sessionStore.sessions.count)")
-                overviewMetricTile(title: "Currency", value: settingsStore.settings.currency)
-            }
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            AppTheme.cardBackground,
-                            AppTheme.cardBackground,
-                            AppTheme.accent.opacity(0.05)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: AppTheme.subtleShadow.color, radius: AppTheme.subtleShadow.radius, y: AppTheme.subtleShadow.y)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .stroke(AppTheme.accent.opacity(0.08), lineWidth: 1)
-        )
-    }
-
-    private var trackerSetupSection: some View {
-        settingsSection(
-            title: "Tracker Setup",
-            subtitle: "Set your money context and the defaults the logger should start with.",
-            systemImage: "slider.horizontal.3",
-            tint: AppTheme.accent,
-            badge: settingsStore.settings.currency
-        ) {
-            settingsMenuRow(
-                title: "Display Currency",
-                subtitle: "Used for bankroll totals, hourly rates, exports, and stake presets",
-                value: selectedCurrencyText
-            ) {
+    // MARK: - Tracker
+    @ViewBuilder
+    private var trackerSection: some View {
+        Section {
+            Picker("Currency", selection: currencyBinding) {
                 ForEach(SupportedCurrency.all) { currency in
-                    Button(currency.pickerLabel) {
-                        updateCurrency(to: currency.code)
-                    }
+                    Text(currency.pickerLabel).tag(currency.code)
                 }
             }
 
-            settingsDivider
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Starting Bankroll")
-                        .font(.body.weight(.medium))
-                    Text("Sets the opening balance used in your overall bankroll total")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 12)
-
+            LabeledContent("Starting Bankroll") {
                 TextField("0", value: startingBankrollBinding, format: .number)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .focused($focusedField, equals: .startingBankroll)
-                    .frame(width: 140)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(UIColor.systemBackground))
-                    )
+                    .frame(maxWidth: 160)
             }
-            .padding(16)
+        } header: {
+            Text("General")
+        }
 
-            settingsDivider
-
-            settingsMenuRow(
-                title: "Default Format",
-                subtitle: "The game format pre-selected when you log a session",
-                value: settingsStore.settings.defaultGameType.rawValue
-            ) {
+        Section {
+            Picker("Default Format", selection: settingBinding(\.defaultGameType)) {
                 ForEach(GameType.formatOptions, id: \.self) { gameType in
-                    Button(gameType.rawValue) {
-                        settingBinding(\.defaultGameType).wrappedValue = gameType
-                    }
+                    Text(gameType.rawValue).tag(gameType)
                 }
             }
 
-            settingsDivider
-
-            settingsMenuRow(
-                title: "Default Variant",
-                subtitle: "The poker variant you use most often",
-                value: selectedVariantText
-            ) {
+            Picker("Default Variant", selection: defaultVariantBinding) {
                 ForEach(PokerVariant.allCases, id: \.rawValue) { variant in
-                    Button(variant.rawValue) {
-                        defaultVariantBinding.wrappedValue = variant.rawValue
-                    }
+                    Text(variant.rawValue).tag(variant.rawValue)
                 }
             }
 
-            settingsDivider
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Default Stakes")
-                    .font(.body.weight(.medium))
-
-                Text("Optional fallback used when a new session does not already inherit stakes from a recent session.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 10) {
-                    TextField("Optional", text: defaultStakesBinding)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .defaultStakes)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color(UIColor.systemBackground))
-                        )
-
-                    if normalizedText(settingsStore.settings.defaultStakes) != nil {
-                        Button {
-                            defaultStakesBinding.wrappedValue = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            Picker("Default Stakes", selection: defaultStakesPresetSelection) {
+                Text("None").tag("")
+                ForEach(quickStakesList, id: \.self) { item in
+                    Text(displayLabel(forQuickStake: item)).tag(storedValue(forQuickStake: item))
                 }
-
-                FlowLayout(spacing: 8) {
-                    settingsSelectionChip(
-                        title: "None",
-                        isSelected: normalizedText(settingsStore.settings.defaultStakes) == nil,
-                        tint: .gray
-                    ) {
-                        defaultStakesBinding.wrappedValue = ""
-                    }
-
-                    ForEach(StakesPreset.allCases, id: \.self) { preset in
-                        settingsSelectionChip(
-                            title: preset.rawValue,
-                            isSelected: defaultStakesMatches(preset),
-                            tint: AppTheme.accent
-                        ) {
-                            defaultStakesBinding.wrappedValue = preset.storedValue(currency: settingsStore.settings.currency)
-                        }
-                    }
-                }
-                .padding(.top, 2)
+                Text("Other…").tag("__custom__")
             }
-            .padding(16)
+
+            if showingCustomDefaultStakesField || isCustomDefaultStakes {
+                TextField("Custom default stakes", text: defaultStakesBinding)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .defaultStakes)
+            }
+
+            Toggle("Deduct Expenses by Default", isOn: settingBinding(\.deductExpensesFromProfit))
+        } header: {
+            Text("New Sessions")
+        } footer: {
+            Text("These defaults are used when you start a new session. Each session can override the expense setting in its Expenses section.")
         }
     }
 
+    // MARK: - Quick Buttons
+    @ViewBuilder
     private var quickButtonsSection: some View {
-        settingsSection(
-            title: "Quick Buttons",
-            subtitle: "Choose which one-tap stakes and venue buttons appear in the session logger.",
-            systemImage: "square.grid.2x2",
-            tint: .teal,
-            badge: "\(activeStakesPresetCount + venueQuickOptions.count) active"
-        ) {
-            VStack(alignment: .leading, spacing: 0) {
-                settingsSubsectionHeader(title: "Stake Buttons", detail: "\(activeStakesPresetCount) enabled")
+        Section {
+            quickStakesContent
+        } header: {
+            Text("Quick Stake Buttons")
+        } footer: {
+            Text("Stakes appear as quick-select buttons when logging sessions. Swipe left to remove, or add your own.")
+        }
 
-                Text(loggerQuickStakesFooterText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+        Section {
+            quickVenuesContent
+        } header: {
+            Text("Quick Venue Buttons")
+        } footer: {
+            Text("Venues appear automatically after \(SessionStore.automaticVenueQuickOptionThreshold)+ sessions. Swipe left to hide a venue from quick buttons.")
+        }
+    }
 
-                FlowLayout(spacing: 8) {
-                    ForEach(StakesPreset.allCases, id: \.self) { preset in
-                        settingsSelectionChip(
-                            title: preset.rawValue,
-                            isSelected: stakesPresetBinding(for: preset).wrappedValue,
-                            tint: .teal
-                        ) {
-                            let binding = stakesPresetBinding(for: preset)
-                            binding.wrappedValue.toggle()
-                        }
+    @ViewBuilder
+    private var quickStakesContent: some View {
+        Group {
+            TextField("Custom stake, e.g. $1/$2 or $1/$2/$5", text: $newCustomStakes)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focusedField, equals: .newCustomStakes)
+                .onSubmit { addQuickStake(newCustomStakes) }
+
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                addQuickStake(newCustomStakes)
+            } label: {
+                Label("Add Stake", systemImage: "plus.circle")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .disabled(cleanedCustomStakes == nil)
+
+            if !quickStakesList.isEmpty {
+                ForEach(quickStakesList, id: \.self) { item in
+                    HStack {
+                        Text(displayLabel(forQuickStake: item))
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
                     }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color(UIColor.tertiarySystemFill))
+                    .cornerRadius(10)
                 }
-                .padding(16)
+                .onDelete(perform: removeQuickStake)
 
-                settingsDivider
-
-                settingsSubsectionHeader(
-                    title: "Venue Buttons",
-                    detail: venueQuickOptions.isEmpty ? "None yet" : "\(venueQuickOptions.count) active"
-                )
-
-                Text("Venues become quick buttons automatically after \(SessionStore.automaticVenueQuickOptionThreshold)+ logged sessions. Manually pinned venues stay until you remove them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-
-                HStack(spacing: 12) {
-                    TextField("Add venue button", text: $newQuickVenue)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .focused($focusedField, equals: .newQuickVenue)
-                        .onSubmit {
-                            addQuickVenue(newQuickVenue)
-                        }
-
+                if shouldShowRestoreDefaultStakes {
                     Button {
-                        addQuickVenue(newQuickVenue)
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        restoreDefaultStakes()
                     } label: {
-                        Text("Add")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(cleanedNewQuickVenue == nil ? Color.secondary : Color.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(cleanedNewQuickVenue == nil ? Color(UIColor.systemGray5) : AppTheme.accent)
-                            )
+                        Label("Restore Default Stakes", systemImage: "arrow.uturn.backward")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .disabled(cleanedNewQuickVenue == nil)
+                    .buttonStyle(.bordered)
                 }
-                .padding(16)
-
-                if !addableQuickVenues.isEmpty {
-                    settingsDivider
-
-                    Menu {
-                        ForEach(addableQuickVenues, id: \.self) { venue in
-                            Button(venue) {
-                                addQuickVenue(venue)
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(.teal)
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Add Logged Venue")
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text("Choose from venues already found in your session history")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer(minLength: 12)
-
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                settingsDivider
-
-                if venueQuickOptions.isEmpty {
-                    Text("No venue quick buttons yet. Add one manually or log a few sessions at the same room.")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No stakes added. Add one above or restore defaults.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        restoreDefaultStakes()
+                    } label: {
+                        Label("Restore Default Stakes", systemImage: "arrow.uturn.backward")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var quickVenuesContent: some View {
+        Group {
+            TextField("New venue", text: $newQuickVenue)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focusedField, equals: .newQuickVenue)
+                .onSubmit { addQuickVenue(newQuickVenue) }
+
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                addQuickVenue(newQuickVenue)
+            } label: {
+                Label("Add Venue", systemImage: "plus.circle")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .disabled(cleanedNewQuickVenue == nil)
+
+            if !addableQuickVenues.isEmpty {
+                Menu {
+                    ForEach(addableQuickVenues, id: \.self) { venue in
+                        Button(venue) {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                            addQuickVenue(venue)
+                        }
+                    }
+                } label: {
+                    Label("Add From Logged Venues", systemImage: "clock.arrow.circlepath")
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                } else {
-                    ForEach(Array(venueQuickOptions.enumerated()), id: \.element.id) { index, option in
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(option.venue)
-                                    .font(.body.weight(.medium))
-                                Text(venueQuickOptionDetail(option))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer(minLength: 12)
-
-                            settingsInfoBadge(
-                                option.source == .manual ? "Pinned" : "Auto",
-                                tint: option.source == .manual ? AppTheme.accent : .teal,
-                                fill: option.source == .manual ? AppTheme.accent.opacity(0.12) : Color.teal.opacity(0.12)
-                            )
-
-                            Button {
-                                removeQuickVenue(option.venue)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Remove \(option.venue)")
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-
-                        if index < venueQuickOptions.count - 1 {
-                            settingsDivider
-                        }
-                    }
+                        .contentShape(Rectangle())
                 }
+            }
+
+            if !venueQuickOptions.isEmpty {
+                ForEach(venueQuickOptions) { option in
+                    Text(option.venue)
+                        .font(.subheadline)
+                }
+                .onDelete(perform: removeQuickVenues)
+            } else {
+                Text("No venues pinned. Add one above or they'll appear after \(SessionStore.automaticVenueQuickOptionThreshold)+ sessions.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private var premiumAndAISection: some View {
-        settingsSection(
-            title: "Premium & AI",
-            subtitle: subscriptionStore.isSubscribed
-                ? "Premium features are unlocked. Personal API keys are optional."
-                : "Track your free usage, unlock unlimited tools, or connect your own AI keys.",
-            systemImage: "sparkles",
-            tint: .orange,
-            badge: subscriptionStore.isSubscribed ? "Unlocked" : "Standard"
-        ) {
-            VStack(spacing: 0) {
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill((subscriptionStore.isSubscribed ? Color.yellow : .orange).opacity(0.14))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(subscriptionStore.isSubscribed ? Color.yellow : Color.orange)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(subscriptionStore.isSubscribed ? "Premium is active" : "Premium unlocks every limit")
-                            .font(.body.weight(.semibold))
-                        Text(
-                            subscriptionStore.isSubscribed
-                            ? "Unlimited AI logging, odds calculations, and charts are available on this device."
-                            : (subscriptionStore.subscriptionDisplayPrice.map { "\($0). Upgrade for unlimited AI logging, odds calculations, and all charts." }
-                                ?? "Upgrade for unlimited AI logging, odds calculations, and all charts.")
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    if subscriptionStore.isSubscribed {
-                        settingsInfoBadge("Active", tint: .green, fill: Color.green.opacity(0.14))
-                    } else {
-                        Button {
-                            showingPaywall = true
-                        } label: {
-                            Text("View Plans")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Capsule(style: .continuous).fill(AppTheme.accent))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(16)
-
-                settingsDivider
-
-                HStack(spacing: 12) {
-                    usageTile(
-                        title: "AI Session Crafter",
-                        value: subscriptionStore.isSubscribed ? "Unlimited" : "\(AISessionCrafterUsage.usesRemaining)",
-                        subtitle: subscriptionStore.isSubscribed ? "Premium active" : "of \(AISessionCrafterUsage.freeUseLimit) free uses left",
-                        systemImage: "bubble.left.and.bubble.right.fill",
-                        tint: AppTheme.accent
-                    )
-
-                    usageTile(
-                        title: "Odds Calculator",
-                        value: subscriptionStore.isSubscribed ? "Unlimited" : "\(OddsCalculatorUsage.usesRemaining)",
-                        subtitle: subscriptionStore.isSubscribed ? "Premium active" : "of \(OddsCalculatorUsage.freeUseLimit) free uses left",
-                        systemImage: "percent",
-                        tint: .orange
-                    )
-                }
-                .padding(16)
-
-                settingsDivider
-
-                settingsFieldRow(
-                    title: "Gemini API Key",
-                    subtitle: "Used first when present. Leave blank to keep the built-in path."
-                ) {
-                    SecureField("Paste Gemini key", text: optionalStringBinding(\.geminiAPIKey))
-                        .textContentType(.password)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .geminiAPIKey)
-                }
-
-                settingsDivider
-
-                settingsFieldRow(
-                    title: "OpenAI API Key",
-                    subtitle: "Optional fallback if you want a second provider available."
-                ) {
-                    SecureField("Paste OpenAI key", text: optionalStringBinding(\.openAIAPIKey))
-                        .textContentType(.password)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .openAIAPIKey)
-                }
-            }
-        }
-    }
-
-    private var appearanceAndBehaviorSection: some View {
-        settingsSection(
-            title: "Appearance & Behavior",
-            subtitle: "Control how information looks and how the app responds day to day.",
-            systemImage: "paintbrush.pointed",
-            tint: .indigo
-        ) {
-            settingsMenuRow(
-                title: "Win / Loss Colors",
-                subtitle: "Includes colorblind-friendly alternatives",
-                value: settingsStore.settings.profitLossColorScheme.rawValue
-            ) {
+    // MARK: - Display
+    @ViewBuilder
+    private var displaySection: some View {
+        Section {
+            Picker("Win / Loss Colors", selection: settingBinding(\.profitLossColorScheme)) {
                 ForEach(ProfitLossColorScheme.allCases, id: \.self) { scheme in
-                    Button(scheme.rawValue) {
-                        settingBinding(\.profitLossColorScheme).wrappedValue = scheme
-                    }
+                    Text(scheme.rawValue).tag(scheme)
                 }
             }
 
-            settingsDivider
+            Toggle("Show Hourly Rate", isOn: settingBinding(\.showHourlyRate))
+            Toggle("Show Session Numbers", isOn: settingBinding(\.showSessionNumbers))
+        } header: {
+            Text("Profit & Session")
+        }
 
-            settingsToggleRow(
-                title: "Show Hourly Rate",
-                subtitle: "Display hourly results when enough session time exists",
-                isOn: settingBinding(\.showHourlyRate)
-            )
+        Section {
+            Toggle("Compact Currency", isOn: settingBinding(\.useCompactCurrency))
+            Toggle("24-Hour Time", isOn: settingBinding(\.use24HourTime))
+        } header: {
+            Text("Formatting")
+        }
 
-            settingsDivider
-
-            settingsToggleRow(
-                title: "Show Session Numbers",
-                subtitle: "Display numbered session badges around the app",
-                isOn: settingBinding(\.showSessionNumbers)
-            )
-
-            settingsDivider
-
-            settingsToggleRow(
-                title: "Compact Currency",
-                subtitle: "Shorten large values to formats like $1.2K",
-                isOn: settingBinding(\.useCompactCurrency)
-            )
-
-            settingsDivider
-
-            settingsToggleRow(
-                title: "24-Hour Time",
-                subtitle: "Show times like 18:30 instead of 6:30 PM",
-                isOn: settingBinding(\.use24HourTime)
-            )
-
-            settingsDivider
-
-            settingsToggleRow(
-                title: "Haptic Feedback",
-                subtitle: "Use light tactile confirmation for key actions",
-                isOn: settingBinding(\.hapticFeedback)
-            )
-
-            settingsDivider
-
-            settingsToggleRow(
-                title: "Session Reminders",
-                subtitle: "Allow the app to remind you to log sessions consistently",
-                isOn: settingBinding(\.reminderEnabled)
-            )
+        Section {
+            Toggle("Haptic Feedback", isOn: settingBinding(\.hapticFeedback))
+            Toggle("Session Reminders", isOn: settingBinding(\.reminderEnabled))
+            Toggle("Confirm Before Delete", isOn: settingBinding(\.confirmBeforeDelete))
+        } header: {
+            Text("Behavior")
+        } footer: {
+            Text("Controls how the app responds during daily use.")
         }
     }
 
-    private var dataAndSafetySection: some View {
-        settingsSection(
-            title: "Data & Safety",
-            subtitle: "Back up sessions, export data, and guard destructive actions.",
-            systemImage: "externaldrive",
-            tint: .green
-        ) {
-            settingsToggleRow(
-                title: "Confirm Before Delete",
-                subtitle: "Require confirmation before removing a session",
-                isOn: settingBinding(\.confirmBeforeDelete)
-            )
+    // MARK: - Premium & AI
+    @ViewBuilder
+    private var premiumAndAISection: some View {
+        Section {
+            LabeledContent("Status", value: subscriptionStore.isSubscribed ? "Active" : "Standard")
 
-            settingsDivider
+            if !subscriptionStore.isSubscribed, let price = subscriptionStore.subscriptionDisplayPrice {
+                LabeledContent("Price", value: price)
+            }
 
-            settingsActionRow(
-                title: "Export to CSV",
-                subtitle: "Share a spreadsheet-friendly version of your sessions",
-                systemImage: "square.and.arrow.up",
-                tint: AppTheme.accent
-            ) {
+            LabeledContent("AI Session Crafter", value: subscriptionStore.isSubscribed ? "Unlimited" : "\(AISessionCrafterUsage.usesRemaining) of \(AISessionCrafterUsage.freeUseLimit)")
+            LabeledContent("Odds Calculator", value: subscriptionStore.isSubscribed ? "Unlimited" : "\(OddsCalculatorUsage.usesRemaining) of \(OddsCalculatorUsage.freeUseLimit)")
+
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                showingPaywall = true
+            } label: {
+                Label(subscriptionStore.isSubscribed ? "Manage Premium" : "View Plans", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+        } header: {
+            Text("Premium")
+        } footer: {
+            Text(subscriptionStore.isSubscribed
+                 ? "Premium is active on this device."
+                 : "Premium unlocks unlimited AI session logging, unlimited odds calculations, and all charts.")
+        }
+
+        Section {
+            LabeledContent("Provider", value: aiModeText)
+
+            SecureField("Gemini API Key", text: optionalStringBinding(\.geminiAPIKey))
+                .textContentType(.password)
+                .autocapitalization(.none)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: .geminiAPIKey)
+
+            SecureField("OpenAI API Key", text: optionalStringBinding(\.openAIAPIKey))
+                .textContentType(.password)
+                .autocapitalization(.none)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: .openAIAPIKey)
+        } header: {
+            Text("AI")
+        } footer: {
+            Text("Optional. Leave blank to use the app's built-in AI.")
+        }
+    }
+
+    // MARK: - Data
+    private var dataSection: some View {
+        Section {
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 exportData = sessionStore.exportCSV(currency: settingsStore.settings.currency)
                 showingExportSheet = true
+            } label: {
+                Label("Export CSV", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
 
-            settingsDivider
-
-            settingsActionRow(
-                title: "Backup Sessions (JSON)",
-                subtitle: "Create a full backup file of your session history",
-                systemImage: "externaldrive.badge.plus",
-                tint: .green
-            ) {
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 if let backup = sessionStore.exportBackupJSON() {
                     backupDocument = TextFileDocument(text: backup)
                     showingBackupExporter = true
@@ -767,62 +449,35 @@ struct SettingsView: View {
                     restoreResultMessage = "Could not generate backup data."
                     showingRestoreResult = true
                 }
+            } label: {
+                Label("Back Up Sessions", systemImage: "externaldrive.badge.plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
 
-            settingsDivider
-
-            settingsActionRow(
-                title: "Restore Sessions (JSON)",
-                subtitle: "Replace current sessions with a previous backup",
-                systemImage: "arrow.clockwise.circle",
-                tint: .orange
-            ) {
+            Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 showingRestoreImporter = true
+            } label: {
+                Label("Restore From Backup", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
+        } header: {
+            Text("Data")
+        } footer: {
+            Text("Restoring replaces your current sessions after confirmation.")
         }
     }
 
-    private var helpAndSupportSection: some View {
-        settingsSection(
-            title: "Help & Support",
-            subtitle: "Version information, privacy details, and support links.",
-            systemImage: "questionmark.circle",
-            tint: .gray
-        ) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("App Version")
-                        .font(.body.weight(.medium))
-                    Text("Current release installed on this device")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                settingsInfoBadge(appVersionText, tint: AppTheme.secondaryText, fill: Color.primary.opacity(0.06))
-            }
-            .padding(16)
-
-            settingsDivider
-
-            settingsLinkRow(
-                title: "Privacy Policy",
-                subtitle: "See how data is handled and protected",
-                systemImage: "hand.raised",
-                tint: AppTheme.accent,
-                destination: AppURLs.privacyPolicy
-            )
-
-            settingsDivider
-
-            settingsLinkRow(
-                title: "Support",
-                subtitle: "Get help or send feedback",
-                systemImage: "questionmark.bubble",
-                tint: AppTheme.accent,
-                destination: AppURLs.support
-            )
+    // MARK: - About
+    private var aboutSection: some View {
+        Section("About") {
+            LabeledContent("Version", value: appVersionText)
+            Link("Privacy Policy", destination: AppURLs.privacyPolicy)
+                .contentShape(Rectangle())
+            Link("Support", destination: AppURLs.support)
+                .contentShape(Rectangle())
         }
     }
 
@@ -893,6 +548,15 @@ struct SettingsView: View {
         )
     }
 
+    private var currencyBinding: Binding<String> {
+        Binding(
+            get: { settingsStore.settings.currency },
+            set: { newCurrency in
+                updateCurrency(to: newCurrency)
+            }
+        )
+    }
+
     private var defaultVariantBinding: Binding<String> {
         Binding(
             get: { settingsStore.settings.defaultVariant ?? PokerVariant.noLimitHoldem.rawValue },
@@ -925,25 +589,132 @@ struct SettingsView: View {
         )
     }
 
+    private var quickStakesList: [String] {
+        settingsStore.settings.quickStakesList
+    }
+
+    /// True when 2+ default stakes have been deleted, or list is empty
+    private var shouldShowRestoreDefaultStakes: Bool {
+        let defaults = Set(AppSettings.defaultQuickStakesList)
+        let current = Set(quickStakesList)
+        let missingCount = defaults.subtracting(current).count
+        return missingCount >= 2 || quickStakesList.isEmpty
+    }
+
+    private func displayLabel(forQuickStake item: String) -> String {
+        if let preset = StakesPreset(rawValue: item) {
+            return preset.rawValue
+        }
+        return item
+    }
+
+    private func storedValue(forQuickStake item: String) -> String {
+        if let preset = StakesPreset(rawValue: item) {
+            return preset.storedValue(currency: settingsStore.settings.currency)
+        }
+        return item
+    }
+
+    private var isCustomDefaultStakes: Bool {
+        guard let current = normalizedText(settingsStore.settings.defaultStakes) else { return false }
+        for item in quickStakesList {
+            if defaultStakesMatchesQuickStake(item, current: current) { return false }
+        }
+        return true
+    }
+
+    private func defaultStakesMatchesQuickStake(_ item: String, current: String) -> Bool {
+        let stored = storedValue(forQuickStake: item)
+        let normalizedCurrent = AppSettings.normalizedCustomStakesValue(current) ?? current
+        let normalizedStored = AppSettings.normalizedCustomStakesValue(stored) ?? stored
+        return normalizedCurrent.caseInsensitiveCompare(normalizedStored) == .orderedSame
+    }
+
+    private var defaultStakesPresetSelection: Binding<String> {
+        Binding(
+            get: {
+                guard let current = normalizedText(settingsStore.settings.defaultStakes) else {
+                    return (showingCustomDefaultStakesField || isCustomDefaultStakes) ? "__custom__" : ""
+                }
+                for item in quickStakesList {
+                    if defaultStakesMatchesQuickStake(item, current: current) {
+                        return storedValue(forQuickStake: item)
+                    }
+                }
+                return (showingCustomDefaultStakesField || isCustomDefaultStakes) ? "__custom__" : ""
+            },
+            set: { selection in
+                switch selection {
+                case "":
+                    showingCustomDefaultStakesField = false
+                    focusedField = nil
+                    defaultStakesBinding.wrappedValue = ""
+                case "__custom__":
+                    showingCustomDefaultStakesField = true
+                    focusedField = .defaultStakes
+                default:
+                    showingCustomDefaultStakesField = false
+                    focusedField = nil
+                    defaultStakesBinding.wrappedValue = selection
+                }
+            }
+        )
+    }
+
+    private var cleanedCustomStakes: String? {
+        AppSettings.normalizedCustomStakesValue(newCustomStakes)
+    }
+
+    private func addQuickStake(_ value: String) {
+        guard let cleaned = AppSettings.normalizedCustomStakesValue(value) else { return }
+        newCustomStakes = ""
+        settingsStore.update { settings in
+            var list = settings.quickStakesList
+            if !list.contains(where: { $0.caseInsensitiveCompare(cleaned) == .orderedSame }) {
+                list.append(cleaned)
+                settings.quickStakesList = AppSettings.normalizedQuickStakesList(list)
+            }
+        }
+    }
+
+    private func restoreDefaultStakes() {
+        settingsStore.update { settings in
+            settings.quickStakesList = AppSettings.defaultQuickStakesList
+        }
+    }
+
+    private func removeQuickStake(at offsets: IndexSet) {
+        settingsStore.update { settings in
+            var updated = settings.quickStakesList
+            for index in offsets.sorted(by: >) {
+                guard updated.indices.contains(index) else { continue }
+                updated.remove(at: index)
+            }
+            settings.quickStakesList = AppSettings.normalizedQuickStakesList(updated)
+        }
+    }
+
     private func normalizedText(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func defaultStakesMatches(_ preset: StakesPreset) -> Bool {
-        guard let current = normalizedText(settingsStore.settings.defaultStakes) else { return false }
-        return current == preset.rawValue || current == preset.storedValue(currency: settingsStore.settings.currency)
-    }
-
     private func updateCurrency(to newCurrency: String) {
         let oldCurrency = settingsStore.settings.currency
         settingsStore.update { settings in
-            if let currentDefaultStakes = normalizedText(settings.defaultStakes),
-               let preset = StakesPreset.allCases.first(where: {
-                   currentDefaultStakes == $0.rawValue || currentDefaultStakes == $0.storedValue(currency: oldCurrency)
-               }) {
-                settings.defaultStakes = preset.storedValue(currency: newCurrency)
+            if let currentDefaultStakes = normalizedText(settings.defaultStakes) {
+                for item in settings.quickStakesList {
+                    if let preset = StakesPreset(rawValue: item) {
+                        let normalizedCurrent = AppSettings.normalizedCustomStakesValue(currentDefaultStakes) ?? currentDefaultStakes
+                        let normalizedStored = AppSettings.normalizedCustomStakesValue(preset.storedValue(currency: oldCurrency))
+                            ?? preset.storedValue(currency: oldCurrency)
+                        if normalizedCurrent.caseInsensitiveCompare(normalizedStored) == .orderedSame {
+                            settings.defaultStakes = preset.storedValue(currency: newCurrency)
+                            break
+                        }
+                    }
+                }
             }
             settings.currency = newCurrency
         }
@@ -963,42 +734,6 @@ struct SettingsView: View {
 
     private var cleanedNewQuickVenue: String? {
         VenueCleaner.clean(newQuickVenue)
-    }
-
-    private var loggerQuickStakesFooterText: String {
-        let enabled = StakesPreset.enabledPresets(from: settingsStore.settings.enabledStakesPresets)
-        if enabled.isEmpty {
-            return "No stake quick buttons will appear in the session logger. Manual stake entry still works."
-        }
-        return "Choose which quick stake buttons appear in the session logger."
-    }
-
-    private func stakesPresetBinding(for preset: StakesPreset) -> Binding<Bool> {
-        Binding(
-            get: {
-                settingsStore.settings.enabledStakesPresets.contains(preset.rawValue)
-            },
-            set: { isEnabled in
-                settingsStore.update { settings in
-                    var enabled = Set(settings.enabledStakesPresets)
-                    if isEnabled {
-                        enabled.insert(preset.rawValue)
-                    } else {
-                        enabled.remove(preset.rawValue)
-                    }
-                    settings.enabledStakesPresets = StakesPreset.normalizedRawValues(Array(enabled))
-                }
-            }
-        )
-    }
-
-    private func venueQuickOptionDetail(_ option: VenueQuickOption) -> String {
-        switch option.source {
-        case .manual:
-            return "Pinned manually"
-        case .automatic(let sessionCount):
-            return "Automatic from \(sessionCount) session\(sessionCount == 1 ? "" : "s")"
-        }
     }
 
     private func addQuickVenue(_ venue: String) {
@@ -1033,400 +768,12 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsSection<Content: View>(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String,
-        tint: Color = AppTheme.accent,
-        badge: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            settingsSectionHeader(
-                title: title,
-                subtitle: subtitle,
-                systemImage: systemImage,
-                tint: tint,
-                badge: badge
-            )
-            settingsCard {
-                content()
-            }
+    private func removeQuickVenues(at offsets: IndexSet) {
+        let options = venueQuickOptions
+        for index in offsets.sorted(by: >) {
+            guard options.indices.contains(index) else { continue }
+            removeQuickVenue(options[index].venue)
         }
-    }
-
-    private func settingsSectionHeader(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String,
-        tint: Color = AppTheme.accent,
-        badge: String? = nil
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(tint.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tint)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer(minLength: 12)
-
-            if let badge {
-                settingsInfoBadge(badge, tint: tint, fill: tint.opacity(0.12))
-            }
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .fill(AppTheme.cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-        )
-        .shadow(color: AppTheme.subtleShadow.color, radius: AppTheme.subtleShadow.radius, y: AppTheme.subtleShadow.y)
-    }
-
-    private var settingsDivider: some View {
-        Divider()
-            .padding(.leading, 16)
-    }
-
-    private func overviewMetricTile(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.tertiary)
-                .kerning(0.6)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(UIColor.systemBackground).opacity(0.7))
-        )
-    }
-
-    private func settingsFieldRow<Content: View>(
-        title: String,
-        subtitle: String? = nil,
-        @ViewBuilder field: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.body.weight(.medium))
-
-            if let subtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            field()
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(UIColor.systemBackground))
-                )
-        }
-        .padding(16)
-    }
-
-    private func settingsMenuRow<MenuItems: View>(
-        title: String,
-        subtitle: String? = nil,
-        value: String,
-        @ViewBuilder menuItems: () -> MenuItems
-    ) -> some View {
-        Menu {
-            menuItems()
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 6) {
-                    Text(value)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(UIColor.systemBackground))
-                )
-            }
-            .contentShape(Rectangle())
-            .padding(16)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(value)")
-        .accessibilityHint("Opens options")
-    }
-
-    private func settingsToggleRow(
-        title: String,
-        subtitle: String? = nil,
-        isOn: Binding<Bool>
-    ) -> some View {
-        Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.body.weight(.medium))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .tint(AppTheme.accent)
-        .padding(16)
-    }
-
-    private func settingsActionRow(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(16)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func settingsLinkRow(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String,
-        tint: Color,
-        destination: URL
-    ) -> some View {
-        Link(destination: destination) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(16)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func settingsInfoBadge(_ text: String, tint: Color, fill: Color) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(fill)
-            )
-    }
-
-    private func settingsHighlightRow(
-        title: String,
-        value: String,
-        systemImage: String,
-        tint: Color
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(tint.opacity(0.12))
-                )
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(UIColor.systemBackground).opacity(0.72))
-        )
-    }
-
-    private func settingsSubsectionHeader(title: String, detail: String) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            Spacer(minLength: 8)
-            settingsInfoBadge(detail, tint: AppTheme.secondaryText, fill: Color.primary.opacity(0.06))
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-    }
-
-    private func settingsSelectionChip(
-        title: String,
-        isSelected: Bool,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
-                }
-                Text(title)
-                    .lineLimit(1)
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isSelected ? tint : Color(UIColor.systemBackground))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(isSelected ? tint.opacity(0.2) : Color.primary.opacity(0.08), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func usageTile(
-        title: String,
-        value: String,
-        subtitle: String,
-        systemImage: String,
-        tint: Color
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(tint.opacity(0.12))
-                )
-
-            Text(value)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(UIColor.systemBackground))
-        )
     }
 }
 

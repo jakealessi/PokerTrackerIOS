@@ -44,11 +44,38 @@ struct SessionEditorView: View {
         _draft = State(initialValue: .edit(session))
     }
 
-    private var parsedAmount: Double? {
-        parsedUnsignedCurrency(draft.amount)
+    /// For tournament/sitAndGo: cashOut - (buyIn × buyins). Nil if buy-in missing.
+    private var calculatedTournamentAmount: Double? {
+        guard isTournamentGame else { return nil }
+        guard let buyIn = parsedUnsignedCurrency(draft.buyIn) else { return nil }
+        let cashOut = parsedUnsignedCurrency(draft.cashOut) ?? 0
+        let buyinCount = parsedWholeNumber(draft.buyins) ?? 1
+        let totalCost = buyIn * Double(max(1, buyinCount))
+        return cashOut - totalCost
     }
 
-    private var isValid: Bool { parsedAmount != nil }
+    private var parsedAmount: Double? {
+        if isTournamentGame, let calculated = calculatedTournamentAmount {
+            return abs(calculated)
+        }
+        return parsedUnsignedCurrency(draft.amount)
+    }
+
+    /// Signed amount for save and net preview. Tournament: calculated; cash: from manual input + win/loss.
+    private var signedAmountForSave: Double? {
+        if isTournamentGame, let calculated = calculatedTournamentAmount {
+            return calculated
+        }
+        guard let amount = parsedUnsignedCurrency(draft.amount) else { return nil }
+        return draft.isWin ? amount : -amount
+    }
+
+    private var isValid: Bool {
+        if isTournamentGame {
+            return calculatedTournamentAmount != nil
+        }
+        return parsedUnsignedCurrency(draft.amount) != nil
+    }
 
     private var finalVariant: String {
         draft.isCustomVariant ? draft.customVariant : draft.selectedVariant
@@ -77,10 +104,12 @@ struct SessionEditorView: View {
             .count
     }
 
+    private var deductExpenses: Bool {
+        draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit
+    }
     private var netAmountPreview: Double? {
-        guard let gross = parsedAmount else { return nil }
-        let signedGross = draft.isWin ? gross : -gross
-        return signedGross - parsedExpenseTotal
+        guard let signedGross = signedAmountForSave else { return nil }
+        return deductExpenses ? signedGross - parsedExpenseTotal : signedGross
     }
 
     var body: some View {
@@ -107,7 +136,10 @@ struct SessionEditorView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button("Save") {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        save()
+                    }
                         .fontWeight(.semibold)
                         .foregroundStyle(isValid ? AppTheme.accent : AppTheme.secondaryText)
                         .disabled(!isValid)
@@ -164,18 +196,34 @@ struct SessionEditorView: View {
 
     private var quickEntrySection: some View {
         Section("Quick Entry") {
-            HStack {
-                Text("Table Result")
-                TextField("0.00", text: $draft.amount)
-                    .keyboardType(.numbersAndPunctuation)
-                    .multilineTextAlignment(.trailing)
-            }
+            if isTournamentGame {
+                if let amount = calculatedTournamentAmount {
+                    LabeledContent("Result") {
+                        Text(PokerSession.formatCurrency(amount, currency: settingsStore.settings.currency))
+                            .foregroundStyle(amount >= 0 ? winColor : lossColor)
+                            .fontWeight(.medium)
+                    }
+                } else {
+                    LabeledContent("Result") {
+                        Text("Enter buy-in and cash out")
+                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                    }
+                }
+            } else {
+                HStack {
+                    Text("Table Result")
+                    TextField("0.00", text: $draft.amount)
+                        .keyboardType(.numbersAndPunctuation)
+                        .multilineTextAlignment(.trailing)
+                }
 
-            Picker("Result", selection: $draft.isWin) {
-                Text("Win").tag(true)
-                Text("Loss").tag(false)
+                Picker("Result", selection: $draft.isWin) {
+                    Text("Win").tag(true)
+                    Text("Loss").tag(false)
+                }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
 
             DatePicker("Date", selection: $draft.date, displayedComponents: .date)
                 .onChange(of: draft.date) { _, newDate in
@@ -305,7 +353,7 @@ struct SessionEditorView: View {
                     .keyboardType(.numbersAndPunctuation)
                 TextField(mode.tournamentPositionLabel, text: $draft.tournamentPosition)
                     .keyboardType(.numberPad)
-                TextField("Rebuys", text: $draft.rebuys)
+                TextField("Buy-ins", text: $draft.buyins)
                     .keyboardType(.numberPad)
             }
         }
@@ -326,6 +374,11 @@ struct SessionEditorView: View {
                 SessionCurrencyInputRow(label: "Travel", text: $draft.travel)
                 SessionCurrencyInputRow(label: "Fees", text: $draft.fees)
 
+                Toggle("Deduct expenses from profit", isOn: Binding(
+                    get: { draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
+                    set: { draft.deductExpensesFromProfit = $0 }
+                ))
+
                 if parsedExpenseTotal > 0 {
                     LabeledContent("Total Expenses") {
                         Text(PokerSession.formatCurrency(parsedExpenseTotal, currency: settingsStore.settings.currency))
@@ -334,7 +387,7 @@ struct SessionEditorView: View {
                 }
 
                 if let netAmountPreview {
-                    LabeledContent("Net Bankroll Change") {
+                    LabeledContent(deductExpenses ? "Net Bankroll Change" : "Session Result") {
                         Text(PokerSession.formatCurrency(netAmountPreview, currency: settingsStore.settings.currency))
                             .foregroundStyle(netAmountPreview >= 0 ? winColor : lossColor)
                     }
@@ -383,11 +436,13 @@ struct SessionEditorView: View {
                     wrapInSection: false
                 )
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     showingOddsCalculator = true
                 } label: {
                     Label("Add Hand", systemImage: "percent")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.bordered)
                 .tint(AppTheme.accent)
@@ -401,16 +456,22 @@ struct SessionEditorView: View {
                 Text("Stakes")
                 Spacer()
                 StakesInputView(stakes: $draft.stakes, currency: settingsStore.settings.currency)
-                    .frame(maxWidth: 120)
+                    .frame(minWidth: 180, maxWidth: 260)
             }
-            if !enabledStakesPresets.isEmpty {
+            if !allStakesOptions.isEmpty {
                 stakesPresetButtons
             }
         }
     }
 
-    private var enabledStakesPresets: [StakesPreset] {
-        StakesPreset.enabledPresets(from: settingsStore.settings.enabledStakesPresets)
+    private var allStakesOptions: [(label: String, value: String)] {
+        let currency = settingsStore.settings.currency
+        return settingsStore.settings.quickStakesList.map { item in
+            if let preset = StakesPreset(rawValue: item) {
+                return (preset.rawValue, preset.storedValue(currency: currency))
+            }
+            return (item, item)
+        }
     }
 
     private var venueQuickOptions: [VenueQuickOption] {
@@ -420,22 +481,22 @@ struct SessionEditorView: View {
     private var stakesPresetButtons: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(enabledStakesPresets, id: \.self) { preset in
+                ForEach(Array(allStakesOptions.enumerated()), id: \.offset) { _, option in
                     Button {
-                        draft.stakes = preset.storedValue(currency: settingsStore.settings.currency)
-                        HapticManager.lightTap()
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        draft.stakes = option.value
                     } label: {
-                        Text(preset.rawValue)
+                        Text(option.label)
                             .font(.caption)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(
-                                draft.stakes == preset.storedValue(currency: settingsStore.settings.currency)
+                                draft.stakes == option.value
                                     ? AppTheme.accent.opacity(0.3)
                                     : AppTheme.cardBackground
                             )
                             .foregroundStyle(
-                                draft.stakes == preset.storedValue(currency: settingsStore.settings.currency)
+                                draft.stakes == option.value
                                     ? .white
                                     : .primary
                             )
@@ -452,8 +513,8 @@ struct SessionEditorView: View {
         FlowLayout(spacing: 8) {
             ForEach(venueQuickOptions) { option in
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     draft.venue = option.venue
-                    HapticManager.lightTap()
                 } label: {
                     Text(option.venue)
                         .font(.caption)
@@ -508,10 +569,10 @@ struct SessionEditorView: View {
         if !trimmed(draft.tournamentPosition).isEmpty {
             parts.append("Pos \(trimmed(draft.tournamentPosition))")
         }
-        if let rebuyCount = parsedWholeNumber(draft.rebuys), rebuyCount > 0 {
-            parts.append("\(rebuyCount) rebuys")
+        if let buyinCount = parsedWholeNumber(draft.buyins), buyinCount > 1 {
+            parts.append("\(buyinCount) buy-ins")
         }
-        return parts.isEmpty ? "Buy-in, cash out, placing, and rebuys" : parts.joined(separator: " • ")
+        return parts.isEmpty ? "Buy-in, cash out, placing, and buy-ins" : parts.joined(separator: " • ")
     }
 
     private var notesAndTagsSummary: String {
@@ -702,13 +763,11 @@ struct SessionEditorView: View {
     }
 
     private func save() {
-        guard let parsedAmount else { return }
+        guard let finalAmount = signedAmountForSave else { return }
 
         if settingsStore.settings.hapticFeedback {
             HapticManager.success()
         }
-
-        let finalAmount = draft.isWin ? parsedAmount : -parsedAmount
         let calculatedHours = PokerSession.calculatedHours(from: draft.startTime, to: draft.endTime)
         let finalHoursPlayed = calculatedHours ?? parsedHours(draft.hoursPlayed)
         let normalizedVariant = trimmed(finalVariant)
@@ -723,7 +782,7 @@ struct SessionEditorView: View {
         let finalBuyIn = isTournamentGame ? parsedUnsignedCurrency(draft.buyIn) : nil
         let finalCashOut = isTournamentGame ? parsedUnsignedCurrency(draft.cashOut) : nil
         let finalTournamentPosition = isTournamentGame ? parsedWholeNumber(draft.tournamentPosition) : nil
-        let finalRebuys = isTournamentGame ? parsedWholeNumber(draft.rebuys) : nil
+        let finalBuyins = isTournamentGame ? parsedWholeNumber(draft.buyins) : nil
 
         switch mode {
         case .add:
@@ -744,13 +803,14 @@ struct SessionEditorView: View {
                 buyIn: finalBuyIn,
                 cashOut: finalCashOut,
                 tournamentPosition: finalTournamentPosition,
-                rebuys: finalRebuys,
+                buyins: finalBuyins,
                 handNotes: normalizedHandNotes.isEmpty ? nil : normalizedHandNotes,
                 attachedHands: draft.attachedHands,
                 startTime: draft.startTime,
                 endTime: draft.endTime,
                 imageIds: draft.imageIds,
-                tags: Array(draft.selectedTags).sorted()
+                tags: Array(draft.selectedTags).sorted(),
+                deductExpensesFromProfit: draft.deductExpensesFromProfit
             )
             sessionStore.addSession(session)
         case .edit(let session):
@@ -773,11 +833,12 @@ struct SessionEditorView: View {
             updated.buyIn = finalBuyIn
             updated.cashOut = finalCashOut
             updated.tournamentPosition = finalTournamentPosition
-            updated.rebuys = finalRebuys
+            updated.buyins = finalBuyins
             updated.handNotes = normalizedHandNotes.isEmpty ? nil : normalizedHandNotes
             updated.attachedHands = draft.attachedHands
             updated.imageIds = draft.imageIds
             updated.tags = Array(draft.selectedTags).sorted()
+            updated.deductExpensesFromProfit = draft.deductExpensesFromProfit
             sessionStore.updateSession(updated)
         }
 
@@ -861,7 +922,7 @@ private struct SessionEditorDraft {
     var buyIn: String = ""
     var cashOut: String = ""
     var tournamentPosition: String = ""
-    var rebuys: String = ""
+    var buyins: String = "1"
     var handNotes: String = ""
     var startTime: Date?
     var endTime: Date?
@@ -873,6 +934,7 @@ private struct SessionEditorDraft {
     var showExpenses: Bool = false
     var showNotesAndTags: Bool = false
     var showAttachments: Bool = false
+    var deductExpensesFromProfit: Bool?
 
     static func add(prefill: AddSessionPrefill) -> Self {
         var draft = Self()
@@ -916,7 +978,7 @@ private struct SessionEditorDraft {
         draft.buyIn = session.buyIn.map { String(format: "%.2f", $0) } ?? ""
         draft.cashOut = session.cashOut.map { String(format: "%.2f", $0) } ?? ""
         draft.tournamentPosition = session.tournamentPosition.map(String.init) ?? ""
-        draft.rebuys = session.rebuys.map(String.init) ?? ""
+        draft.buyins = session.buyins.map(String.init) ?? "1"
         draft.handNotes = session.handNotes ?? ""
         draft.startTime = session.startTime
         draft.endTime = session.endTime
@@ -926,6 +988,7 @@ private struct SessionEditorDraft {
         draft.showSessionDetails = true
         draft.showTournamentDetails = session.gameType == .tournament || session.gameType == .sitAndGo
         draft.showExpenses = session.hasExpenses
+        draft.deductExpensesFromProfit = session.deductExpensesFromProfit
         draft.showNotesAndTags =
             !draft.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             !draft.handNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -965,6 +1028,7 @@ private struct SessionFormDisclosureHeader: View {
 }
 
 private struct SessionDisclosureToggleRow: View {
+    @EnvironmentObject var settingsStore: SettingsStore
     let title: String
     let summary: String
     let systemImage: String
@@ -972,6 +1036,7 @@ private struct SessionDisclosureToggleRow: View {
 
     var body: some View {
         Button {
+            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
             withAnimation(AppTheme.smoothSpring) {
                 isExpanded.toggle()
             }
@@ -1013,6 +1078,7 @@ private struct SessionCurrencyInputRow: View {
 }
 
 private struct AttachedHandsPreviewList: View {
+    @EnvironmentObject var settingsStore: SettingsStore
     let hands: [PokerSession.AttachedHand]
     let onRemove: (UUID) -> Void
 
@@ -1024,6 +1090,7 @@ private struct AttachedHandsPreviewList: View {
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     Button(role: .destructive) {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         onRemove(hand.id)
                     } label: {
                         Image(systemName: "minus.circle.fill")
@@ -1046,6 +1113,7 @@ private struct AttachedHandsPreviewList: View {
 }
 
 private struct TagPickerView: View {
+    @EnvironmentObject var settingsStore: SettingsStore
     @Binding var selectedTags: Set<String>
 
     private let columns = [GridItem(.adaptive(minimum: 100), spacing: 8)]
@@ -1055,6 +1123,7 @@ private struct TagPickerView: View {
             ForEach(SessionTag.allCases, id: \.rawValue) { tag in
                 let isSelected = selectedTags.contains(tag.rawValue)
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     if isSelected {
                         selectedTags.remove(tag.rawValue)
                     } else {
@@ -1078,6 +1147,7 @@ private struct TagPickerView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(isSelected ? tag.color.opacity(0.5) : Color.clear, lineWidth: 1)
                     )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -1093,14 +1163,15 @@ private struct StakesInputView: View {
     private enum Field {
         case smallBlind
         case bigBlind
+        case straddle
     }
 
     private var smallBlind: Binding<String> {
         Binding(
             get: { parseStakes(stakes).0 },
             set: { newValue in
-                let (_, big) = parseStakes(stakes)
-                stakes = formatStakes(small: newValue, big: big)
+                let (_, big, straddle) = parseStakes(stakes)
+                stakes = formatStakes(small: newValue, big: big, straddle: straddle)
             }
         )
     }
@@ -1109,8 +1180,18 @@ private struct StakesInputView: View {
         Binding(
             get: { parseStakes(stakes).1 },
             set: { newValue in
-                let (small, _) = parseStakes(stakes)
-                stakes = formatStakes(small: small, big: newValue)
+                let (small, _, straddle) = parseStakes(stakes)
+                stakes = formatStakes(small: small, big: newValue, straddle: straddle)
+            }
+        )
+    }
+
+    private var straddle: Binding<String> {
+        Binding(
+            get: { parseStakes(stakes).2 },
+            set: { newValue in
+                let (small, big, _) = parseStakes(stakes)
+                stakes = formatStakes(small: small, big: big, straddle: newValue)
             }
         )
     }
@@ -1119,15 +1200,27 @@ private struct StakesInputView: View {
         StakesPreset.symbol(for: currency)
     }
 
+    private var symbolBeforeAmount: Bool {
+        SupportedCurrency.symbolBeforeAmount(for: currency)
+    }
+
     var body: some View {
         HStack(spacing: 4) {
-            Text(currencySymbol)
-                .font(.body)
-                .foregroundStyle(.secondary)
+            if symbolBeforeAmount {
+                Text(currencySymbol)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
             TextField("0", text: smallBlind)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)
                 .focused($focusedField, equals: .smallBlind)
+                .frame(minWidth: 44)
+            if !symbolBeforeAmount {
+                Text(currencySymbol)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
             Text("/")
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -1135,6 +1228,25 @@ private struct StakesInputView: View {
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.center)
                 .focused($focusedField, equals: .bigBlind)
+                .frame(minWidth: 44)
+            if !symbolBeforeAmount {
+                Text(currencySymbol)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            Text("/")
+                .font(.body)
+                .foregroundStyle(.secondary)
+            TextField("0", text: straddle)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.center)
+                .focused($focusedField, equals: .straddle)
+                .frame(minWidth: 44)
+            if !symbolBeforeAmount {
+                Text(currencySymbol)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1142,7 +1254,7 @@ private struct StakesInputView: View {
         .cornerRadius(8)
     }
 
-    private func parseStakes(_ stakes: String) -> (String, String) {
+    private func parseStakes(_ stakes: String) -> (String, String, String) {
         var cleaned = stakes
         let symbols = Set(SupportedCurrency.all.map(\.symbol))
             .sorted { lhs, rhs in
@@ -1155,22 +1267,39 @@ private struct StakesInputView: View {
         }
 
         let parts = cleaned.split(separator: "/").map(String.init)
+        if parts.count >= 3 {
+            return (
+                parts[0].trimmingCharacters(in: .whitespaces),
+                parts[1].trimmingCharacters(in: .whitespaces),
+                parts[2].trimmingCharacters(in: .whitespaces)
+            )
+        }
         if parts.count >= 2 {
             return (
                 parts[0].trimmingCharacters(in: .whitespaces),
-                parts[1].trimmingCharacters(in: .whitespaces)
+                parts[1].trimmingCharacters(in: .whitespaces),
+                ""
             )
         }
         if parts.count == 1, !parts[0].isEmpty {
-            return (parts[0], "")
+            return (parts[0], "", "")
         }
-        return ("", "")
+        return ("", "", "")
     }
 
-    private func formatStakes(small: String, big: String) -> String {
-        if small.isEmpty && big.isEmpty { return "" }
-        if small.isEmpty { return "\(currencySymbol)/\(big)" }
-        if big.isEmpty { return "\(currencySymbol)\(small)/" }
-        return "\(currencySymbol)\(small)/\(currencySymbol)\(big)"
+    private func formatStakes(small: String, big: String, straddle: String) -> String {
+        if small.isEmpty && big.isEmpty && straddle.isEmpty { return "" }
+        let straddleTrimmed = straddle.trimmingCharacters(in: .whitespaces)
+        let before = symbolBeforeAmount
+        func part(_ n: String) -> String { before ? "\(currencySymbol)\(n)" : "\(n) \(currencySymbol)" }
+        if straddleTrimmed.isEmpty {
+            if small.isEmpty && big.isEmpty { return "" }
+            if small.isEmpty { return before ? "\(currencySymbol)/\(big)" : "/\(part(big))" }
+            if big.isEmpty { return before ? "\(currencySymbol)\(small)/" : "\(part(small))/" }
+            return "\(part(small))/\(part(big))"
+        }
+        if small.isEmpty { return before ? "\(currencySymbol)/\(big)/\(part(straddleTrimmed))" : "/\(part(big))/\(part(straddleTrimmed))" }
+        if big.isEmpty { return "\(part(small))/\(part(""))/\(part(straddleTrimmed))" }
+        return "\(part(small))/\(part(big))/\(part(straddleTrimmed))"
     }
 }

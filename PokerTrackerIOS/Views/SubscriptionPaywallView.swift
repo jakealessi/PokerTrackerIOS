@@ -9,6 +9,7 @@ import StoreKit
 struct SubscriptionPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var subscriptionStore: SubscriptionStore
+    @EnvironmentObject var settingsStore: SettingsStore
     @State private var activeTask: Task<Void, Never>?
     @State private var didAttemptPurchase = false
 
@@ -63,6 +64,7 @@ struct SubscriptionPaywallView: View {
                             .font(.headline)
 
                         Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             activeTask?.cancel()
                             activeTask = Task { @MainActor in
                                 do {
@@ -84,6 +86,7 @@ struct SubscriptionPaywallView: View {
                                 .background(AppTheme.accent)
                                 .foregroundStyle(.white)
                                 .cornerRadius(AppTheme.smallCornerRadius)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(subscriptionStore.isLoading)
@@ -125,6 +128,7 @@ struct SubscriptionPaywallView: View {
                 }
 
                 Button("Restore Purchases") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     activeTask?.cancel()
                     activeTask = Task { @MainActor in
                         didAttemptPurchase = true
@@ -142,9 +146,11 @@ struct SubscriptionPaywallView: View {
                     Link("Privacy Policy", destination: AppURLs.privacyPolicy)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     Link("Terms of Use (EULA)", destination: AppURLs.termsOfUse)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 24)
@@ -191,5 +197,6 @@ private struct SubscriptionPaywallView_Previews: PreviewProvider {
     static var previews: some View {
         SubscriptionPaywallView()
             .environmentObject(SubscriptionStore.shared)
+            .environmentObject(SettingsStore())
     }
 }

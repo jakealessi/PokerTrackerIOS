@@ -325,7 +325,13 @@ class SessionStore: ObservableObject {
     }
     
     // MARK: - Core Stats
-    var totalProfit: Double { filteredSessions.reduce(0) { $0 + $1.netAmount } }
+    var totalProfit: Double { totalProfit(deductExpenses: true) }
+    func totalProfit(deductExpenses: Bool) -> Double {
+        totalProfit(settingsDefault: deductExpenses)
+    }
+    func totalProfit(settingsDefault: Bool) -> Double {
+        filteredSessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+    }
     var totalExpenses: Double { filteredSessions.reduce(0) { $0 + $1.totalExpenses } }
     var totalSessions: Int { filteredSessions.count }
     var winCount: Int { filteredSessions.filter { $0.isWin }.count }
@@ -340,16 +346,42 @@ class SessionStore: ObservableObject {
     var totalHoursPlayed: Double {
         filteredSessions.compactMap { $0.hoursPlayed }.reduce(0, +)
     }
-    var hourlyRate: Double? {
+    var hourlyRate: Double? { hourlyRate(deductExpenses: true) }
+    func hourlyRate(deductExpenses: Bool) -> Double? {
+        hourlyRate(settingsDefault: deductExpenses)
+    }
+    func hourlyRate(settingsDefault: Bool) -> Double? {
         guard totalHoursPlayed > 0 else { return nil }
-        return totalProfit / totalHoursPlayed
+        return totalProfit(settingsDefault: settingsDefault) / totalHoursPlayed
     }
-    var averageSession: Double {
+    var averageSession: Double { averageSession(deductExpenses: true) }
+    func averageSession(deductExpenses: Bool) -> Double {
+        averageSession(settingsDefault: deductExpenses)
+    }
+    func averageSession(settingsDefault: Bool) -> Double {
         guard totalSessions > 0 else { return 0 }
-        return totalProfit / Double(totalSessions)
+        return totalProfit(settingsDefault: settingsDefault) / Double(totalSessions)
     }
-    var bestSession: PokerSession? { filteredSessions.max(by: { $0.netAmount < $1.netAmount }) }
-    var worstSession: PokerSession? { filteredSessions.min(by: { $0.netAmount < $1.netAmount }) }
+    var bestSession: PokerSession? { bestSession(deductExpenses: true) }
+    func bestSession(deductExpenses: Bool) -> PokerSession? {
+        bestSession(settingsDefault: deductExpenses)
+    }
+    func bestSession(settingsDefault: Bool) -> PokerSession? {
+        filteredSessions.max(by: {
+            $0.displayProfit(deductExpenses: $0.effectiveDeductExpenses(settingsDefault: settingsDefault)) <
+            $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault))
+        })
+    }
+    var worstSession: PokerSession? { worstSession(deductExpenses: true) }
+    func worstSession(deductExpenses: Bool) -> PokerSession? {
+        worstSession(settingsDefault: deductExpenses)
+    }
+    func worstSession(settingsDefault: Bool) -> PokerSession? {
+        filteredSessions.min(by: {
+            $0.displayProfit(deductExpenses: $0.effectiveDeductExpenses(settingsDefault: settingsDefault)) <
+            $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault))
+        })
+    }
     
     // MARK: - Streaks
     var currentWinStreak: Int {
@@ -397,24 +429,26 @@ class SessionStore: ObservableObject {
 
     /// Weekday performance in locale order (includes empty weekdays with 0 sessions).
     /// average is average P/L per session for that weekday.
-    var weekdayPerformance: [(label: String, weekday: Int, average: Double, sessions: Int, total: Double)] {
+    func weekdayPerformance(settingsDefault: Bool = true) -> [(label: String, weekday: Int, average: Double, sessions: Int, total: Double)] {
         let cal = Calendar.current
         let grouped = Dictionary(grouping: filteredSessions) { session in
             cal.component(.weekday, from: session.date) // 1...7
         }
 
-        let symbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let rawSymbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let symbols = rawSymbols.count >= 7 ? rawSymbols : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         let orderedWeekdays = (0..<7).map { offset in
             ((cal.firstWeekday - 1 + offset) % 7) + 1
         }
 
         return orderedWeekdays.map { weekday in
             let sessions = grouped[weekday] ?? []
-            let total = sessions.reduce(0) { $0 + $1.netAmount }
+            let total = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
             let count = sessions.count
             let avg = count > 0 ? total / Double(count) : 0
+            let label = (1...7).contains(weekday) ? symbols[weekday - 1] : "?"
             return (
-                label: symbols[weekday - 1],
+                label: label,
                 weekday: weekday,
                 average: avg,
                 sessions: count,
@@ -423,7 +457,7 @@ class SessionStore: ObservableObject {
         }
     }
 
-    func hourlyRateBreakdown(for dimension: HourlyRateBreakdownDimension) -> [HourlyRateBreakdownEntry] {
+    func hourlyRateBreakdown(for dimension: HourlyRateBreakdownDimension, settingsDefault: Bool = true) -> [HourlyRateBreakdownEntry] {
         let sessionsWithHours = filteredSessions.filter { session in
             guard let hours = session.hoursPlayed else { return false }
             return hours > 0
@@ -431,19 +465,19 @@ class SessionStore: ObservableObject {
 
         switch dimension {
         case .venue:
-            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+            return groupedHourlyRateBreakdown(from: sessionsWithHours, settingsDefault: settingsDefault) { session in
                 VenueCleaner.clean(session.venue) ?? "Unknown Venue"
             }
         case .gameType:
-            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+            return groupedHourlyRateBreakdown(from: sessionsWithHours, settingsDefault: settingsDefault) { session in
                 session.displayGameType
             }
         case .variant:
-            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+            return groupedHourlyRateBreakdown(from: sessionsWithHours, settingsDefault: settingsDefault) { session in
                 PokerSession.abbreviation(for: session.displayVariant)
             }
         case .stakes:
-            return groupedHourlyRateBreakdown(from: sessionsWithHours) { session in
+            return groupedHourlyRateBreakdown(from: sessionsWithHours, settingsDefault: settingsDefault) { session in
                 let trimmed = session.stakes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 return trimmed.isEmpty ? "Unknown Stakes" : trimmed
             }
@@ -453,7 +487,8 @@ class SessionStore: ObservableObject {
                 cal.component(.weekday, from: session.date)
             }
 
-            let symbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            let rawSymbols = DateFormatter().shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            let symbols = rawSymbols.count >= 7 ? rawSymbols : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
             let orderedWeekdays = (0..<7).map { offset in
                 ((cal.firstWeekday - 1 + offset) % 7) + 1
             }
@@ -461,32 +496,33 @@ class SessionStore: ObservableObject {
             return orderedWeekdays.compactMap { weekday in
                 let sessions = grouped[weekday] ?? []
                 guard !sessions.isEmpty else { return nil }
-                return makeHourlyRateBreakdownEntry(label: symbols[weekday - 1], sessions: sessions)
+                let label = (1...7).contains(weekday) ? symbols[weekday - 1] : "?"
+                return makeHourlyRateBreakdownEntry(label: label, sessions: sessions, settingsDefault: settingsDefault)
             }
         }
     }
 
-    func profitBreakdown(for dimension: ProfitBreakdownDimension) -> [ProfitBreakdownEntry] {
+    func profitBreakdown(for dimension: ProfitBreakdownDimension, settingsDefault: Bool = true) -> [ProfitBreakdownEntry] {
         switch dimension {
         case .venue:
-            return groupedProfitBreakdown { session in
+            return groupedProfitBreakdown(settingsDefault: settingsDefault) { session in
                 VenueCleaner.clean(session.venue) ?? "Unknown Venue"
             }
         case .gameType:
-            return groupedProfitBreakdown { session in
+            return groupedProfitBreakdown(settingsDefault: settingsDefault) { session in
                 session.displayGameType
             }
         case .variant:
-            return groupedProfitBreakdown { session in
+            return groupedProfitBreakdown(settingsDefault: settingsDefault) { session in
                 PokerSession.abbreviation(for: session.displayVariant)
             }
         case .stakes:
-            return groupedProfitBreakdown { session in
+            return groupedProfitBreakdown(settingsDefault: settingsDefault) { session in
                 let trimmed = session.stakes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 return trimmed.isEmpty ? "Unknown Stakes" : trimmed
             }
         case .weekday:
-            return weekdayPerformance
+            return weekdayPerformance(settingsDefault: settingsDefault)
                 .filter { $0.sessions > 0 }
                 .map { point in
                     ProfitBreakdownEntry(
@@ -541,10 +577,12 @@ class SessionStore: ObservableObject {
     
     /// Date range for charts: earliest session date through today
     var chartDateRange: (start: Date, end: Date)? {
-        guard !filteredSessions.isEmpty else { return nil }
+        guard !filteredSessions.isEmpty,
+              let minSession = filteredSessions.min(by: { $0.date < $1.date }),
+              let maxSession = filteredSessions.max(by: { $0.date < $1.date }) else { return nil }
         let calendar = Calendar.current
-        let first = filteredSessions.min(by: { $0.date < $1.date })!.date
-        let last = filteredSessions.max(by: { $0.date < $1.date })!.date
+        let first = minSession.date
+        let last = maxSession.date
         let today = calendar.startOfDay(for: Date())
         let end = endOfDay(for: max(last, today), using: calendar)
         let start = calendar.startOfDay(for: first)
@@ -563,10 +601,12 @@ class SessionStore: ObservableObject {
     
     /// Domain for cumulative profit: earliest session through today
     var cumulativeProfitDomain: (start: Date, end: Date)? {
-        guard !filteredSessions.isEmpty else { return nil }
+        guard !filteredSessions.isEmpty,
+              let minSession = filteredSessions.min(by: { $0.date < $1.date }),
+              let maxSession = filteredSessions.max(by: { $0.date < $1.date }) else { return nil }
         let calendar = Calendar.current
-        let first = filteredSessions.min(by: { $0.date < $1.date })!.date
-        let last = filteredSessions.max(by: { $0.date < $1.date })!.date
+        let first = minSession.date
+        let last = maxSession.date
         let today = calendar.startOfDay(for: Date())
         let end = endOfDay(for: max(last, today), using: calendar)
         return (calendar.startOfDay(for: first), end)
@@ -584,9 +624,11 @@ class SessionStore: ObservableObject {
     
     /// Date range of all sessions (unfiltered) for preset bounds
     var allSessionsDateRange: (start: Date, end: Date)? {
-        guard !sessions.isEmpty else { return nil }
-        let first = sessions.min(by: { $0.date < $1.date })!.date
-        let last = sessions.max(by: { $0.date < $1.date })!.date
+        guard !sessions.isEmpty,
+              let minSession = sessions.min(by: { $0.date < $1.date }),
+              let maxSession = sessions.max(by: { $0.date < $1.date }) else { return nil }
+        let first = minSession.date
+        let last = maxSession.date
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         return (calendar.startOfDay(for: first), endOfDay(for: max(last, today), using: calendar))
@@ -672,12 +714,13 @@ class SessionStore: ObservableObject {
         sessions = remainingSessions
     }
 
-    private func groupedProfitBreakdown(_ labelForSession: (PokerSession) -> String) -> [ProfitBreakdownEntry] {
+    private func groupedProfitBreakdown(settingsDefault: Bool = true, _ labelForSession: (PokerSession) -> String) -> [ProfitBreakdownEntry] {
         Dictionary(grouping: filteredSessions, by: labelForSession)
             .map { label, sessions in
-                ProfitBreakdownEntry(
+                let profit = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+                return ProfitBreakdownEntry(
                     label: label,
-                    profit: sessions.reduce(0) { $0 + $1.netAmount },
+                    profit: profit,
                     sessions: sessions.count
                 )
             }
@@ -690,11 +733,12 @@ class SessionStore: ObservableObject {
 
     private func groupedHourlyRateBreakdown(
         from sessions: [PokerSession],
+        settingsDefault: Bool = true,
         _ labelForSession: (PokerSession) -> String
     ) -> [HourlyRateBreakdownEntry] {
         Dictionary(grouping: sessions, by: labelForSession)
             .map { label, sessions in
-                makeHourlyRateBreakdownEntry(label: label, sessions: sessions)
+                makeHourlyRateBreakdownEntry(label: label, sessions: sessions, settingsDefault: settingsDefault)
             }
             .sorted { lhs, rhs in
                 if lhs.hourlyRate != rhs.hourlyRate { return lhs.hourlyRate > rhs.hourlyRate }
@@ -706,9 +750,10 @@ class SessionStore: ObservableObject {
 
     private func makeHourlyRateBreakdownEntry(
         label: String,
-        sessions: [PokerSession]
+        sessions: [PokerSession],
+        settingsDefault: Bool = true
     ) -> HourlyRateBreakdownEntry {
-        let totalProfit = sessions.reduce(0) { $0 + $1.netAmount }
+        let totalProfit = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
         let totalHours = sessions.compactMap(\.hoursPlayed).reduce(0, +)
         return HourlyRateBreakdownEntry(
             label: label,
@@ -907,7 +952,7 @@ class SessionStore: ObservableObject {
         normalized.notes = normalized.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         normalized.tags = normalizedTags(normalized.tags)
         normalized.tournamentPosition = normalizedPositiveInt(normalized.tournamentPosition)
-        normalized.rebuys = normalizedNonNegativeInt(normalized.rebuys)
+        normalized.buyins = normalizedBuyins(normalized.buyins)
 
         // Legacy PLO sessions should be stored as cash sessions with a PLO variant.
         if normalized.gameType == .plo {
@@ -920,6 +965,12 @@ class SessionStore: ObservableObject {
         if let calculated = PokerSession.calculatedHours(from: normalized.startTime, to: normalized.endTime),
            normalized.hoursPlayed == nil {
             normalized.hoursPlayed = calculated
+        }
+
+        if (normalized.gameType == .tournament || normalized.gameType == .sitAndGo),
+           let buyIn = normalized.buyIn, let cashOut = normalized.cashOut {
+            let effectiveBuyins = max(1, normalized.buyins ?? 1)
+            normalized.amount = cashOut - (buyIn * Double(effectiveBuyins))
         }
         return normalized
     }
@@ -1011,6 +1062,11 @@ class SessionStore: ObservableObject {
     private func normalizedNonNegativeInt(_ value: Int?) -> Int? {
         guard let value, value >= 0 else { return nil }
         return value == 0 ? nil : value
+    }
+
+    private func normalizedBuyins(_ value: Int?) -> Int? {
+        guard let value, value >= 1 else { return nil }
+        return min(12, value)
     }
 
     private func deleteImagesNoLongerReferenced(_ candidateImageIDs: Set<String>, in source: [PokerSession]) {

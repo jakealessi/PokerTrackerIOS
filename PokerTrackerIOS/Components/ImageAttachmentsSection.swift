@@ -8,6 +8,7 @@ import PhotosUI
 
 /// Reusable section for attaching images to a session via PhotosPicker
 struct ImageAttachmentsSection: View {
+    @EnvironmentObject var settingsStore: SettingsStore
     @Binding var imageIds: [String]
     /// When true, removes image file from disk when user taps remove. Use false when editing (clean up on save instead).
     var deleteOnRemove: Bool = true
@@ -74,11 +75,11 @@ struct ImageAttachmentsSection: View {
                             .cornerRadius(8)
 
                         Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             imageIds.removeAll { $0 == imageId }
                             if deleteOnRemove {
                                 SessionImageStore.delete(imageId: imageId)
                             }
-                            HapticManager.lightTap()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 22))
@@ -130,6 +131,7 @@ struct SessionImageView: View {
     let imageId: String
     @State private var image: UIImage?
     @State private var didFinishLoading = false
+    @State private var isLoading = false
     
     var body: some View {
         Group {
@@ -154,12 +156,14 @@ struct SessionImageView: View {
     }
     
     private func loadImage() {
-        guard image == nil, !didFinishLoading else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        guard image == nil, !didFinishLoading, !isLoading else { return }
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [imageId] in
             let loaded = SessionImageStore.loadImage(imageId: imageId)
             DispatchQueue.main.async {
                 image = loaded
                 didFinishLoading = true
+                isLoading = false
             }
         }
     }

@@ -29,7 +29,7 @@ struct ParsedSession {
     let cashOut: Double?
     let date: Date?
     let tournamentPosition: Int?
-    let rebuys: Int?
+    let buyins: Int?
     let handNotes: String?
     let tags: [String]
 
@@ -51,7 +51,7 @@ struct ParsedSession {
             cashOut: cashOut,
             date: date,
             tournamentPosition: tournamentPosition,
-            rebuys: rebuys,
+            buyins: buyins,
             handNotes: handNotes,
             tags: tags
         )
@@ -75,7 +75,7 @@ struct ParsedSession {
             cashOut: cashOut,
             date: value,
             tournamentPosition: tournamentPosition,
-            rebuys: rebuys,
+            buyins: buyins,
             handNotes: handNotes,
             tags: tags
         )
@@ -120,7 +120,7 @@ struct ParsedSession {
             cashOut: cashOut ?? signals.cashOut,
             date: date ?? signals.date,
             tournamentPosition: tournamentPosition ?? signals.tournamentPosition,
-            rebuys: rebuys ?? signals.rebuys,
+            buyins: buyins ?? signals.buyins,
             handNotes: handNotes,
             tags: tags
         )
@@ -269,6 +269,7 @@ class AISessionService: ObservableObject {
         - EXAMPLE: "won 300 but was up 800 at one point" → amount is 300 (NOT 800).
         - EXAMPLE: "lost 500, was stuck 1000 earlier but fought back" → amount is -500.
         - If user says "bought in for X, cashed out for Y", compute amount as Y - X.
+        - For tournaments: "buyins" = total buy-ins/bullets (default 1). "3 bullets", "fired 3 bullets", "2 rebuys" → buyins = 3. When buyIn and cashOut are present, ALWAYS set buyins (1 if not mentioned) and compute amount = cashOut - (buyIn × buyins). Never use a raw profit figure for amount—always derive it from buyIn, cashOut, and buyins.
         - Treat compact amounts like "1k" = 1000 and "1.5k" = 1500.
         - Phrases like "in for 300, out for 850" mean amount = 550.
         - Positive amount = win, negative = loss.
@@ -317,7 +318,7 @@ class AISessionService: ObservableObject {
         - If the user provides an amount PLUS at least one other detail (stakes, venue, hours, game type, etc.), go ahead and log it.
         - If the user provides start/end times (e.g. "started at 7, ended at 11"), compute and return hoursPlayed from that range.
         - When you have enough info, respond with ONLY a JSON object:
-          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "rake": number|null, "tips": number|null, "food": number|null, "travel": number|null, "fees": number|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "rebuys": number|null, "handNotes": string|null, "tags": [string]}
+          {"action": "create", "amount": number, "hoursPlayed": number|null, "stakes": string|null, "venue": string|null, "rake": number|null, "tips": number|null, "food": number|null, "travel": number|null, "fees": number|null, "gameFormat": string|null, "variant": string|null, "notes": string|null, "buyIn": number|null, "cashOut": number|null, "date": string|null, "tournamentPosition": number|null, "buyins": number|null, "handNotes": string|null, "tags": [string]}
         - "date" must be ISO 8601 (YYYY-MM-DD or full ISO). If the user says "yesterday", "last Saturday", "played last weekend", etc., compute that date relative to TODAY and output it. Never use a date from a previous year for relative phrases.
         - Relative phrases like "last night", "Friday night", or "this morning" should also be resolved relative to TODAY above.
         - Default variant to "No Limit Hold'em" and format to "Cash Game" if not mentioned.
@@ -325,7 +326,7 @@ class AISessionService: ObservableObject {
         RULES FOR UPDATES:
         - If the user says something like "update session 3" or "change session #5 stakes to 2/5", respond with:
           {"action": "update", "sessionNumber": number, "fields": {"fieldName": newValue, ...}}
-        - Valid field names: amount, hoursPlayed, stakes, venue, rake, tips, food, travel, fees, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, rebuys, handNotes, tags
+        - Valid field names: amount, hoursPlayed, stakes, venue, rake, tips, food, travel, fees, gameFormat, variant, notes, buyIn, cashOut, date, tournamentPosition, buyins, handNotes, tags
         - If the user wants to update but doesn't specify which session, ask them which session number.
 
         GENERAL RULES:
@@ -558,7 +559,7 @@ class AISessionService: ObservableObject {
         let buyIn = Self.parseDoubleValue(parsed["buyIn"])
         let cashOut = Self.parseDoubleValue(parsed["cashOut"])
         let tournamentPosition = Self.parseIntValue(parsed["tournamentPosition"])
-        let rebuys = Self.parseIntValue(parsed["rebuys"])
+        let buyins = Self.parseBuyinsFromResponse(parsed)
         let handNotes = Self.normalizedText(parsed["handNotes"] as? String)
         let tags = Self.normalizedTags(from: parsed["tags"])
         
@@ -581,7 +582,7 @@ class AISessionService: ObservableObject {
             cashOut: cashOut,
             date: date,
             tournamentPosition: tournamentPosition,
-            rebuys: rebuys,
+            buyins: buyins,
             handNotes: handNotes,
             tags: tags
         )
@@ -644,7 +645,7 @@ class AISessionService: ObservableObject {
         let buyIn = parseDoubleValue(d["buyIn"])
         let cashOut = parseDoubleValue(d["cashOut"])
         let tournamentPosition = parseIntValue(d["tournamentPosition"])
-        let rebuys = parseIntValue(d["rebuys"])
+        let buyins = parseBuyinsFromResponse(d)
         let handNotes = normalizedText(d["handNotes"] as? String)
         let tags = normalizedTags(from: d["tags"])
         
@@ -667,10 +668,17 @@ class AISessionService: ObservableObject {
             cashOut: cashOut,
             date: date,
             tournamentPosition: tournamentPosition,
-            rebuys: rebuys,
+            buyins: buyins,
             handNotes: handNotes,
             tags: tags
         )
+    }
+
+    /// Parses buyins from AI/worker response. Supports buyins (preferred) or legacy rebuys.
+    private static func parseBuyinsFromResponse(_ d: [String: Any]) -> Int? {
+        if let n = parseIntValue(d["buyins"]), n >= 1 { return min(12, n) }
+        if let rebuys = parseIntValue(d["rebuys"]), rebuys >= 0 { return min(12, rebuys + 1) }
+        return nil
     }
     
     // MARK: - Helpers
@@ -693,7 +701,7 @@ class AISessionService: ObservableObject {
             session.cashOut != nil ||
             session.date != nil ||
             session.tournamentPosition != nil ||
-            session.rebuys != nil ||
+            session.buyins != nil ||
             hasText(session.handNotes) ||
             !session.tags.isEmpty
         return hasSupportingDetail
@@ -779,8 +787,8 @@ class AISessionService: ObservableObject {
             if fields["tournamentPosition"] == nil, let position = signals.tournamentPosition {
                 fields["tournamentPosition"] = position
             }
-            if fields["rebuys"] == nil, let rebuys = signals.rebuys {
-                fields["rebuys"] = rebuys
+            if fields["buyins"] == nil, let buyins = signals.buyins {
+                fields["buyins"] = buyins
             }
             if fields["date"] == nil, let date = signals.date {
                 fields["date"] = formatDateString(date)
@@ -1029,8 +1037,9 @@ class AISessionService: ObservableObject {
         if let cashOut = parseDoubleValue(fields["cashOut"]) { s.cashOut = cashOut }
         if fieldIsNull(fields["tournamentPosition"]) { s.tournamentPosition = nil }
         if let pos = parseIntValue(fields["tournamentPosition"]) { s.tournamentPosition = pos }
-        if fieldIsNull(fields["rebuys"]) { s.rebuys = nil }
-        if let rebuys = parseIntValue(fields["rebuys"]) { s.rebuys = rebuys }
+        if fieldIsNull(fields["buyins"]) { s.buyins = nil }
+        if let buyins = parseIntValue(fields["buyins"]), buyins >= 1 { s.buyins = min(12, buyins) }
+        else if let rebuys = parseIntValue(fields["rebuys"]), rebuys >= 0 { s.buyins = min(12, rebuys + 1) }
         if fieldIsNull(fields["handNotes"]) { s.handNotes = nil }
         if let handNotes = fields["handNotes"] as? String { s.handNotes = normalizedText(handNotes) }
         if fieldIsNull(fields["tags"]) { s.tags = [] }
@@ -1048,6 +1057,12 @@ class AISessionService: ObservableObject {
         }
         if let dateStr = fields["date"] as? String {
             if let d = parseDateString(dateStr) { s.date = d }
+        }
+        let touchedTournamentFields = fields.keys.contains("buyIn") || fields.keys.contains("cashOut") || fields.keys.contains("buyins") || fields.keys.contains("rebuys")
+        if touchedTournamentFields, (s.gameType == .tournament || s.gameType == .sitAndGo),
+           let buyIn = s.buyIn, let cashOut = s.cashOut {
+            let buyins = s.buyins ?? 1
+            s.amount = cashOut - (buyIn * Double(buyins))
         }
         return s
     }

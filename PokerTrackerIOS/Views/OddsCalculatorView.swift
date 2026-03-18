@@ -12,6 +12,7 @@ struct OddsCalculatorView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var subscriptionStore: SubscriptionStore
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var settingsStore: SettingsStore
     @Environment(\.colorScheme) private var colorScheme
     let preselectedSessionID: UUID?
     let onHandCreated: ((PokerSession.AttachedHand) -> Void)?
@@ -85,6 +86,7 @@ struct OddsCalculatorView: View {
                 ToolbarItem(placement: .primaryAction) {
                     if isFromSession {
                         Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                             quickAttachNote = ""
                             showingQuickAttachNote = true
                         } label: {
@@ -109,6 +111,7 @@ struct OddsCalculatorView: View {
                     subtitle: "Unlock unlimited AI Session Crafter, unlimited Odds Calculator, and all stats charts."
                 )
                 .environmentObject(subscriptionStore)
+                .environmentObject(settingsStore)
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
@@ -137,6 +140,7 @@ struct OddsCalculatorView: View {
                 TextField("Optional note", text: $quickAttachNote)
                 Button("Cancel", role: .cancel) { }
                 Button("Save") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     if let sessionID = preselectedSessionID,
                        let hand = makeAttachedHand(note: quickAttachNote) {
                         sessionStore.addAttachedHand(hand, toSessionID: sessionID)
@@ -170,6 +174,7 @@ struct OddsCalculatorView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
             Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 showingPaywall = true
             } label: {
                 Text(premiumCTAButtonTitle)
@@ -179,6 +184,7 @@ struct OddsCalculatorView: View {
                     .background(AppTheme.accent)
                     .foregroundStyle(.white)
                     .cornerRadius(AppTheme.smallCornerRadius)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
@@ -254,7 +260,10 @@ struct OddsCalculatorView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             if OddsCalculatorUsage.usesRemaining == 0 {
-                Button("Unlock unlimited") { showingPaywall = true }
+                Button("Unlock unlimited") {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                    showingPaywall = true
+                }
                     .font(.caption)
                     .foregroundStyle(AppTheme.accent)
             }
@@ -287,6 +296,7 @@ struct OddsCalculatorView: View {
             }
             if numberOfHands < 6 {
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     numberOfHands += 1
                 } label: {
                     Label("Add Hand", systemImage: "plus.circle.fill")
@@ -296,6 +306,7 @@ struct OddsCalculatorView: View {
             }
             if numberOfHands > 2 {
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     removeLastHand()
                 } label: {
                     Label("Remove Hand", systemImage: "minus.circle.fill")
@@ -309,6 +320,7 @@ struct OddsCalculatorView: View {
     private var actionsRow: some View {
         HStack {
             Button {
+                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 clearAll()
             } label: {
                 Label("Clear", systemImage: "trash")
@@ -402,6 +414,7 @@ struct OddsCalculatorView: View {
         .frame(minWidth: 48, minHeight: 56)
         .contentShape(Rectangle())
         .onTapGesture {
+            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
             if let card {
                 removeCard(card)
             } else {
@@ -439,6 +452,7 @@ struct OddsCalculatorView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Button {
+                                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                                 addCard(card)
                             } label: {
                                 Text(cardDisplay(card))
@@ -495,6 +509,7 @@ struct OddsCalculatorView: View {
             }
             if !isFromSession {
                 Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     if onHandCreated != nil {
                         quickAttachNote = ""
                         showingQuickAttachNote = true
@@ -904,11 +919,14 @@ private struct AttachHandToSessionSheet: View {
 
                 Section {
                     Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         onAttachToNewSession(handToAttach)
                         dismiss()
                     } label: {
                         Label("Attach to New Session", systemImage: "plus.circle.fill")
                             .foregroundStyle(AppTheme.accent)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                 }
 
@@ -920,6 +938,7 @@ private struct AttachHandToSessionSheet: View {
                     } else {
                         ForEach(sessionsMostRecentFirst) { session in
                             Button {
+                                if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                                 sessionStore.addAttachedHand(handToAttach, toSessionID: session.id)
                                 dismiss()
                             } label: {
@@ -933,12 +952,12 @@ private struct AttachHandToSessionSheet: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Text(PokerSession.formatCurrency(session.netAmount, currency: settingsStore.settings.currency))
+                                    Text(PokerSession.formatCurrency(session.displayProfit(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit)), currency: settingsStore.settings.currency))
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(
-                                            session.isWin
+                                            session.isWinForDisplay(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit))
                                             ? settingsStore.settings.profitLossColorScheme.winColor
-                                            : (session.isLoss ? settingsStore.settings.profitLossColorScheme.lossColor : .secondary)
+                                            : (session.isLossForDisplay(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit)) ? settingsStore.settings.profitLossColorScheme.lossColor : .secondary)
                                         )
                                     if session.id == preselectedSessionID {
                                         Image(systemName: "checkmark.circle.fill")
@@ -946,6 +965,8 @@ private struct AttachHandToSessionSheet: View {
                                     }
                                 }
                                 .padding(.vertical, 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -968,5 +989,6 @@ private struct OddsCalculatorView_Previews: PreviewProvider {
         OddsCalculatorView()
             .environmentObject(SubscriptionStore.shared)
             .environmentObject(SessionStore())
+            .environmentObject(SettingsStore())
     }
 }

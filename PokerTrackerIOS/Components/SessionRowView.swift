@@ -13,9 +13,10 @@ struct SessionRowView: View {
     
     private var winColor: Color { settingsStore.settings.profitLossColorScheme.winColor }
     private var lossColor: Color { settingsStore.settings.profitLossColorScheme.lossColor }
+    private var deductExpenses: Bool { session.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit) }
     private var resultColor: Color {
-        if session.isWin { return winColor }
-        if session.isLoss { return lossColor }
+        if session.isWinForDisplay(deductExpenses: deductExpenses) { return winColor }
+        if session.isLossForDisplay(deductExpenses: deductExpenses) { return lossColor }
         return .secondary
     }
     
@@ -28,7 +29,7 @@ struct SessionRowView: View {
     }
 
     private var amountText: String {
-        settingsStore.settings.displayAmount(session.netAmount)
+        settingsStore.settings.displayAmount(session.displayProfit(deductExpenses: deductExpenses))
     }
     
     var body: some View {
