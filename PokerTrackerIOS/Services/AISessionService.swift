@@ -384,6 +384,7 @@ class AISessionService: ObservableObject {
                 "maxOutputTokens": 500
             ]
         ])
+        request.timeoutInterval = 60
 
         let (data, response) = try await urlSession.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -406,7 +407,8 @@ class AISessionService: ObservableObject {
               let candidates = json["candidates"] as? [[String: Any]],
               let first = candidates.first,
               let content = first["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]] else {
+              let parts = content["parts"] as? [[String: Any]],
+              !parts.isEmpty else {
             throw AISessionError.invalidResponse
         }
 
@@ -449,9 +451,19 @@ class AISessionService: ObservableObject {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, _) = try await urlSession.data(for: request)
-        
+        request.timeoutInterval = 60
+
+        let (data, response) = try await urlSession.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = errorJson["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw AISessionError.networkError(NSError(domain: "OpenAI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: message]))
+            }
+            throw AISessionError.networkError(NSError(domain: "OpenAI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"]))
+        }
+
         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = errorJson["error"] as? [String: Any],
            let message = error["message"] as? String {
@@ -843,6 +855,7 @@ class AISessionService: ObservableObject {
     private static func formatDateString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
     }
 

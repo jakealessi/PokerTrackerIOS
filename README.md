@@ -1,6 +1,12 @@
-# Poker Bankroll AI
+# Poker Tracker iOS
 
-A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions with AI assistance, view stats and charts, and sync data across devices via iCloud.
+<p>
+  <img src="https://img.shields.io/badge/Swift-5.9+-orange.svg" alt="Swift 5.9+">
+  <img src="https://img.shields.io/badge/iOS-17.0+-blue.svg" alt="iOS 17.0+">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT">
+</p>
+
+A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions with AI assistance, view stats and charts, and sync data across devices via iCloud. Published as **Poker Bankroll AI** on the App Store.
 
 ## Features
 
@@ -36,6 +42,10 @@ A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions
 - **Share session** – Share a session summary via Messages, Mail, etc.
 - **Export to CSV** – Share your data for backup or analysis
 
+### Odds Calculator
+- **Hand equity** – NLH, PLO, PLO-5 with exact or Monte Carlo calculation
+- **Attach hands** – Add calculated hands directly to sessions
+
 ### Premium Subscription
 - **Unlimited AI uses** – No cap on AI session crafting
 - **All charts** – Full access to stats and analytics
@@ -45,22 +55,7 @@ A SwiftUI iOS app for tracking poker wins, losses, and performance. Log sessions
 - **Onboarding** – Welcome flow for first-time users
 - **Haptic feedback** – Tactile response on key actions
 - **iCloud sync** – Data syncs across devices when signed in with the same Apple ID
-- **This month** – Dashboard stat for current month profit
-
-## API Key Setup (keeps your key off GitHub)
-
-Your API key stays local and is never pushed to GitHub.
-
-**Option 1: APIKeys.plist (recommended for development)**  
-1. Copy `PokerTrackerIOS/APIKeys.example.plist` to `APIKeys.plist` (same folder)  
-2. Open `APIKeys.plist` and replace the placeholder values with your real keys  
-3. `APIKeys.plist` is in `.gitignore`—it will not be committed when you push  
-
-**Option 2: In-app Settings**  
-Add your key in the app's Settings screen. It's stored on the device only.
-
-- Never hardcode keys in Swift files  
-- If a key is exposed, revoke it at aistudio.google.com or platform.openai.com
+- **Session reminders** – Optional daily reminder to log sessions
 
 ## Requirements
 
@@ -70,17 +65,35 @@ Add your key in the app's Settings screen. It's stored on the device only.
 
 ## Getting Started
 
-1. Open `PokerTrackerIOS.xcodeproj` in Xcode
-2. Select your development team in Signing & Capabilities
-3. Enable iCloud capability (Key-Value and Documents)
+1. Clone the repo and open `PokerTrackerIOS.xcodeproj` in Xcode
+2. Select your development team in **Signing & Capabilities**
+3. Enable **iCloud** capability (Key-Value and Documents)
 4. Build and run on a simulator or device (⌘R)
+
+## API Key Setup
+
+Your API key stays local and is never pushed to GitHub.
+
+**Option 1: APIKeys.plist (recommended for development)**  
+1. Copy `PokerTrackerIOS/APIKeys.example.plist` to `APIKeys.plist` (same folder)  
+2. Open `APIKeys.plist` and replace the placeholder values with your real keys  
+3. `APIKeys.plist` is in `.gitignore`—it will not be committed  
+
+**Option 2: In-app Settings**  
+Add your key in the app's Settings screen. It's stored on the device only.
+
+- Never hardcode keys in Swift files  
+- If a key is exposed, revoke it at [aistudio.google.com](https://aistudio.google.com) or [platform.openai.com](https://platform.openai.com)
+
+## Optional: Cloudflare Worker (AI Proxy)
+
+The app can use a Cloudflare Worker to proxy AI requests, keeping API keys server-side. See [`cloudflare-worker/README.md`](cloudflare-worker/README.md) for setup. The app works without it when using in-app API keys.
 
 ## Project Structure
 
 ```
 PokerTrackerIOS/
 ├── PokerTrackerIOSApp.swift
-├── ContentView.swift
 ├── SessionStore.swift
 ├── SettingsStore.swift
 ├── SubscriptionStore.swift
@@ -92,11 +105,13 @@ PokerTrackerIOS/
 │   ├── DashboardView.swift
 │   ├── SessionsListView.swift
 │   ├── SessionDetailView.swift
+│   ├── SessionEditorView.swift
 │   ├── EditSessionView.swift
 │   ├── AddSessionView.swift
 │   ├── OnboardingView.swift
 │   ├── AnalyticsView.swift
 │   ├── CalendarView.swift
+│   ├── OddsCalculatorView.swift
 │   ├── SubscriptionPaywallView.swift
 │   └── SettingsView.swift
 ├── Components/
@@ -104,20 +119,20 @@ PokerTrackerIOS/
 │   └── ImageAttachmentsSection.swift
 ├── Services/
 │   ├── AISessionService.swift
-│   └── SessionParserService.swift
+│   ├── SessionParserService.swift
+│   └── PokerEquityEngine.swift
 ├── Utilities/
 │   ├── AppTheme.swift
 │   ├── HapticManager.swift
 │   ├── APIKeysLoader.swift
 │   ├── AppURLs.swift
 │   ├── AISessionCrafterUsage.swift
-│   ├── ActivitySheet.swift
+│   ├── OddsCalculatorUsage.swift
 │   ├── SessionImageStore.swift
 │   ├── VenueCleaner.swift
-│   └── iCloudStore.swift
-├── website/
-│   ├── privacy-policy.html
-│   └── support.html
+│   ├── ReminderManager.swift
+│   └── AnonymousUserID.swift
+├── APIKeys.example.plist
 └── Assets.xcassets
 ```
 
@@ -128,3 +143,11 @@ PokerTrackerIOS/
 3. **Calendar** – Browse sessions by month and day
 4. **Sessions** – Search, filter, swipe to edit/delete, tap for details
 5. **Settings** – Bankroll, currency, game defaults, AI keys, export, privacy policy, support
+
+## App Store Distribution
+
+For App Store builds, update `AppURLs.swift` with your privacy policy and support URLs. The app links to these from Settings.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

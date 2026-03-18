@@ -214,12 +214,14 @@ struct DashboardView: View {
     }
 
     private func formatCurrencyTwoDecimals(_ value: Double) -> String {
+        let currency = settingsStore.settings.currency
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = settingsStore.settings.currency
+        formatter.currencyCode = currency
+        formatter.locale = Locale(identifier: SupportedCurrency.localeIdentifier(for: currency))
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? PokerSession.formatCurrency(value, currency: settingsStore.settings.currency)
+        return formatter.string(from: NSNumber(value: value)) ?? PokerSession.formatCurrency(value, currency: currency)
     }
 
     private func metricColumn(_ metric: DashboardMetric) -> some View {

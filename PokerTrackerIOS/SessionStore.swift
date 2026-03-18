@@ -1014,8 +1014,13 @@ class SessionStore: ObservableObject {
             .split(separator: "/", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-        guard parts.count == 2 else { return trimmed }
-        guard stakeComponentHasValue(parts[0]), stakeComponentHasValue(parts[1]) else { return nil }
+        guard parts.count == 2 || parts.count == 3 else { return nil }
+        if parts.count == 2 {
+            guard stakeComponentHasValue(parts[0]), stakeComponentHasValue(parts[1]) else { return nil }
+        } else {
+            guard stakeComponentHasValue(parts[0]), stakeComponentHasValue(parts[2]) else { return nil }
+            // Allow empty middle (e.g. "1//5" for small/straddle only)
+        }
         return trimmed
     }
 

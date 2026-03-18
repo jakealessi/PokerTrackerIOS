@@ -13,7 +13,7 @@ Cloudflare Worker that proxies AI requests for the Poker Tracker iOS app. Keeps 
 
 ```bash
 npm install
-wrangler login
+wrangler login   # Creates .wrangler/ (gitignored)
 
 # Required
 wrangler secret put GEMINI_API_KEY

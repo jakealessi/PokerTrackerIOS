@@ -3,7 +3,7 @@
 //  PokerTrackerIOS
 //
 //  Exact-equity odds calculator for NLH and PLO. Up to 6 hands, dead cards.
-//  20 free uses total (charged once per hand on flop+), then Premium.
+//  15 free uses total (charged once per hand on flop+), then Premium.
 //
 
 import SwiftUI
@@ -168,7 +168,7 @@ struct OddsCalculatorView: View {
             Text("Odds Calculator")
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("Calculate exact win and tie percentages for NLH, PLO, and 5-Card PLO. 20 free uses total (charged once per hand on flop+), then unlock unlimited with Premium.")
+            Text("Calculate exact win and tie percentages for NLH, PLO, and 5-Card PLO. 15 free uses total (charged once per hand on flop+), then unlock unlimited with Premium.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

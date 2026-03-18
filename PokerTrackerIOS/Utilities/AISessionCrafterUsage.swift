@@ -2,22 +2,27 @@
 //  AISessionCrafterUsage.swift
 //  PokerTrackerIOS
 //
-//  Tracks free uses of AI Session Crafter (20 total). Subscribers get unlimited.
+//  Tracks free uses of AI Session Crafter (10 total). Subscribers get unlimited.
 //
 
 import Foundation
 
 enum AISessionCrafterUsage {
     private static let key = "ai_session_crafter_uses_used"
-    static let freeUseLimit = 20
+    private static let queue = DispatchQueue(label: "AISessionCrafterUsage")
+    static let freeUseLimit = 10
 
     static var usesUsed: Int {
         get {
-            let v = UserDefaults.standard.integer(forKey: key)
-            return min(max(v, 0), freeUseLimit)
+            queue.sync {
+                let v = UserDefaults.standard.integer(forKey: key)
+                return min(max(v, 0), freeUseLimit)
+            }
         }
         set {
-            UserDefaults.standard.set(min(max(newValue, 0), freeUseLimit), forKey: key)
+            queue.sync {
+                UserDefaults.standard.set(min(max(newValue, 0), freeUseLimit), forKey: key)
+            }
         }
     }
 
@@ -30,6 +35,10 @@ enum AISessionCrafterUsage {
     }
 
     static func consumeOne() {
-        usesUsed += 1
+        queue.sync {
+            let v = UserDefaults.standard.integer(forKey: key)
+            let next = min(max(v + 1, 0), freeUseLimit)
+            UserDefaults.standard.set(next, forKey: key)
+        }
     }
 }

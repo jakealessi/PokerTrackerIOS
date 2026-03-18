@@ -640,6 +640,7 @@ struct PokerEquityEngine {
     }
 
     private func bestFiveFromSeven(hand: [PlayingCard], board: [PlayingCard]) -> UInt64 {
+        guard hand.count == 2, board.count == 5 else { return 0 }
         let h0 = hand[0], h1 = hand[1]
         let b0 = board[0], b1 = board[1], b2 = board[2], b3 = board[3], b4 = board[4]
         var best: UInt64 = 0
@@ -657,6 +658,7 @@ struct PokerEquityEngine {
     }
 
     private func bestOmahaHand(hand: [PlayingCard], board: [PlayingCard]) -> UInt64 {
+        guard hand.count >= 4, board.count >= 5 else { return 0 }
         var best: UInt64 = 0
         for hc in Self.ploHandTwoCombos {
             for bc in Self.ploBoardThreeCombos {
@@ -674,6 +676,7 @@ struct PokerEquityEngine {
     }
 
     private func bestOmaha5Hand(hand: [PlayingCard], board: [PlayingCard]) -> UInt64 {
+        guard hand.count >= 5, board.count >= 5 else { return 0 }
         var best: UInt64 = 0
         for hc in Self.plo5HandTwoCombos {
             for bc in Self.ploBoardThreeCombos {

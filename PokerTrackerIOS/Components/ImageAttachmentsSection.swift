@@ -119,6 +119,10 @@ struct ImageAttachmentsSection: View {
                     return
                 }
                 await MainActor.run {
+                    guard loadGeneration == generation else {
+                        SessionImageStore.delete(imageId: id)
+                        return
+                    }
                     imageIds.append(id)
                 }
             }
@@ -131,7 +135,6 @@ struct SessionImageView: View {
     let imageId: String
     @State private var image: UIImage?
     @State private var didFinishLoading = false
-    @State private var isLoading = false
     
     var body: some View {
         Group {
@@ -152,19 +155,15 @@ struct SessionImageView: View {
                     }
             }
         }
-        .onAppear { loadImage() }
-    }
-    
-    private func loadImage() {
-        guard image == nil, !didFinishLoading, !isLoading else { return }
-        isLoading = true
-        DispatchQueue.global(qos: .userInitiated).async { [imageId] in
-            let loaded = SessionImageStore.loadImage(imageId: imageId)
-            DispatchQueue.main.async {
-                image = loaded
-                didFinishLoading = true
-                isLoading = false
-            }
+        .id(imageId)
+        .task(id: imageId) {
+            guard image == nil, !didFinishLoading else { return }
+            let loaded = await Task.detached(priority: .userInitiated) {
+                SessionImageStore.loadImage(imageId: imageId)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = loaded
+            didFinishLoading = true
         }
     }
 }

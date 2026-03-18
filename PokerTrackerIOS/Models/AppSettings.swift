@@ -18,7 +18,7 @@ struct SupportedCurrency: Identifiable, Hashable {
         SupportedCurrency(code: "USD", name: "US Dollar", symbol: "$"),
         SupportedCurrency(code: "EUR", name: "Euro", symbol: "€"),
         SupportedCurrency(code: "GBP", name: "British Pound", symbol: "£"),
-        SupportedCurrency(code: "CHF", name: "Swiss Franc", symbol: "CHF"),
+        SupportedCurrency(code: "CHF", name: "Swiss Franc", symbol: "₣"),
         SupportedCurrency(code: "SEK", name: "Swedish Krona", symbol: "kr"),
         SupportedCurrency(code: "NOK", name: "Norwegian Krone", symbol: "kr"),
         SupportedCurrency(code: "DKK", name: "Danish Krone", symbol: "kr"),
@@ -223,7 +223,9 @@ struct AppSettings: Codable {
         hasSeenOnboarding: false,
         geminiAPIKey: nil,
         openAIAPIKey: nil,
-        profitLossColorScheme: .default
+        profitLossColorScheme: .default,
+        workerBaseURL: defaultWorkerBaseURL,
+        reminderEnabled: true
     )
 
     init(from decoder: Decoder) throws {
@@ -364,8 +366,13 @@ struct AppSettings: Codable {
               let big = SessionParserService.parseNumericValue(from: parts[1]) else {
             return (Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude)
         }
-        let third: Double? = parts.count >= 3 ? SessionParserService.parseNumericValue(from: parts[2]) : 0.0
-        return (small, big, third ?? 0)
+        let third: Double
+        if parts.count >= 3 {
+            third = SessionParserService.parseNumericValue(from: parts[2]) ?? Double.greatestFiniteMagnitude
+        } else {
+            third = 0
+        }
+        return (small, big, third)
     }
 
     static func normalizedCustomStakesValue(_ value: String) -> String? {

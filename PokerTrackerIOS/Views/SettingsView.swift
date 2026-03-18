@@ -491,7 +491,12 @@ struct SettingsView: View {
             showingRestoreResult = true
         case .success(let urls):
             pendingRestoreData = nil
-            guard let url = urls.first else { return }
+            guard let url = urls.first else {
+                restoreResultTitle = "Restore Failed"
+                restoreResultMessage = "No file was selected."
+                showingRestoreResult = true
+                return
+            }
             let hasAccess = url.startAccessingSecurityScopedResource()
             defer {
                 if hasAccess { url.stopAccessingSecurityScopedResource() }
@@ -770,6 +775,7 @@ struct SettingsView: View {
 
     private func removeQuickVenues(at offsets: IndexSet) {
         let options = venueQuickOptions
+        // Process in descending order so removals don't invalidate subsequent indices
         for index in offsets.sorted(by: >) {
             guard options.indices.contains(index) else { continue }
             removeQuickVenue(options[index].venue)

@@ -42,6 +42,7 @@ Pods/
 # Cloudflare Worker
 cloudflare-worker/node_modules/
 cloudflare-worker/.dev.vars
+cloudflare-worker/.wrangler/
 
 # macOS
 .DS_Store

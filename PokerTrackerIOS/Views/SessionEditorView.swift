@@ -481,7 +481,7 @@ struct SessionEditorView: View {
     private var stakesPresetButtons: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Array(allStakesOptions.enumerated()), id: \.offset) { _, option in
+                ForEach(allStakesOptions, id: \.label) { option in
                     Button {
                         if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                         draft.stakes = option.value
@@ -1299,7 +1299,7 @@ private struct StakesInputView: View {
             return "\(part(small))/\(part(big))"
         }
         if small.isEmpty { return before ? "\(currencySymbol)/\(big)/\(part(straddleTrimmed))" : "/\(part(big))/\(part(straddleTrimmed))" }
-        if big.isEmpty { return "\(part(small))/\(part(""))/\(part(straddleTrimmed))" }
+        if big.isEmpty { return "\(part(small))//\(part(straddleTrimmed))" }
         return "\(part(small))/\(part(big))/\(part(straddleTrimmed))"
     }
 }

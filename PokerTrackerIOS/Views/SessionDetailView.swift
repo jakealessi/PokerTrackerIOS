@@ -99,6 +99,11 @@ struct SessionDetailView: View {
         } message: {
             Text("This cannot be undone.")
         }
+        .onChange(of: sessionStore.sessions.count) { _, _ in
+            if !sessionStore.sessions.contains(where: { $0.id == session.id }) {
+                dismiss()
+            }
+        }
     }
     
     private var deductExpenses: Bool { currentSession.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit) }
@@ -483,7 +488,9 @@ struct SessionDetailView: View {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let foregroundScene = scenes.first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
         let sceneToUse = foregroundScene ?? scenes.first
-        guard let root = sceneToUse?.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
+        let keyWindow = sceneToUse?.windows.first(where: \.isKeyWindow)
+        let fallbackWindow = sceneToUse?.windows.first
+        guard let root = (keyWindow ?? fallbackWindow)?.rootViewController else { return }
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
         if let popover = vc.popoverPresentationController {
             popover.sourceView = root.view
