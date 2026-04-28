@@ -414,7 +414,7 @@ function isLoggable(s: Record<string, unknown>): boolean {
     hasText(s.venue) ||
     hasText(s.notes) ||
     hasText(s.variant) ||
-    (s.gameFormat && s.gameFormat !== "Cash Game") ||
+    (typeof s.gameFormat === "string" && s.gameFormat !== "Cash Game") ||
     s.buyIn != null ||
     s.cashOut != null ||
     s.date != null ||

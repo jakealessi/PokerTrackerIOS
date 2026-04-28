@@ -135,6 +135,7 @@ struct AppSettings: Codable {
     var useCompactCurrency: Bool
     var showSessionNumbers: Bool
     var confirmBeforeDelete: Bool
+    var privacyModeEnabled: Bool
     var hasSeenOnboarding: Bool
     var geminiAPIKey: String?
     var openAIAPIKey: String?
@@ -150,7 +151,7 @@ struct AppSettings: Codable {
         case enabledStakesPresets, customStakesPresets // legacy, for migration
         case pinnedVenueOptions, hiddenVenueOptions, showHourlyRate, deductExpensesFromProfit, hapticFeedback
         case use24HourTime, useCompactCurrency, showSessionNumbers, confirmBeforeDelete
-        case hasSeenOnboarding, geminiAPIKey, openAIAPIKey, profitLossColorScheme
+        case privacyModeEnabled, hasSeenOnboarding, geminiAPIKey, openAIAPIKey, profitLossColorScheme
         case workerBaseURL, reminderEnabled
     }
 
@@ -174,6 +175,7 @@ struct AppSettings: Codable {
         useCompactCurrency: Bool,
         showSessionNumbers: Bool,
         confirmBeforeDelete: Bool,
+        privacyModeEnabled: Bool,
         hasSeenOnboarding: Bool,
         geminiAPIKey: String?,
         openAIAPIKey: String?,
@@ -196,6 +198,7 @@ struct AppSettings: Codable {
         self.useCompactCurrency = useCompactCurrency
         self.showSessionNumbers = showSessionNumbers
         self.confirmBeforeDelete = confirmBeforeDelete
+        self.privacyModeEnabled = privacyModeEnabled
         self.hasSeenOnboarding = hasSeenOnboarding
         self.geminiAPIKey = geminiAPIKey
         self.openAIAPIKey = openAIAPIKey
@@ -220,6 +223,7 @@ struct AppSettings: Codable {
         useCompactCurrency: false,
         showSessionNumbers: true,
         confirmBeforeDelete: true,
+        privacyModeEnabled: false,
         hasSeenOnboarding: false,
         geminiAPIKey: nil,
         openAIAPIKey: nil,
@@ -257,6 +261,7 @@ struct AppSettings: Codable {
         useCompactCurrency = try c.decodeIfPresent(Bool.self, forKey: .useCompactCurrency) ?? AppSettings.default.useCompactCurrency
         showSessionNumbers = try c.decodeIfPresent(Bool.self, forKey: .showSessionNumbers) ?? AppSettings.default.showSessionNumbers
         confirmBeforeDelete = try c.decodeIfPresent(Bool.self, forKey: .confirmBeforeDelete) ?? AppSettings.default.confirmBeforeDelete
+        privacyModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .privacyModeEnabled) ?? AppSettings.default.privacyModeEnabled
         hasSeenOnboarding = try c.decodeIfPresent(Bool.self, forKey: .hasSeenOnboarding) ?? AppSettings.default.hasSeenOnboarding
         geminiAPIKey = try c.decodeIfPresent(String.self, forKey: .geminiAPIKey)
         openAIAPIKey = try c.decodeIfPresent(String.self, forKey: .openAIAPIKey)
@@ -282,6 +287,7 @@ struct AppSettings: Codable {
         try c.encode(useCompactCurrency, forKey: .useCompactCurrency)
         try c.encode(showSessionNumbers, forKey: .showSessionNumbers)
         try c.encode(confirmBeforeDelete, forKey: .confirmBeforeDelete)
+        try c.encode(privacyModeEnabled, forKey: .privacyModeEnabled)
         try c.encode(hasSeenOnboarding, forKey: .hasSeenOnboarding)
         try c.encodeIfPresent(geminiAPIKey, forKey: .geminiAPIKey)
         try c.encodeIfPresent(openAIAPIKey, forKey: .openAIAPIKey)

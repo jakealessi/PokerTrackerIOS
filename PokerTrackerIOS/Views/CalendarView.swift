@@ -157,7 +157,11 @@ struct CalendarView: View {
     }
     
     private func monthBlock(for monthStart: Date) -> some View {
-        let monthlyTotal = sessionStore.monthlyProfit(for: monthStart, respectingFilters: sessionStore.hasActiveSessionFilters)
+        let monthlyTotal = sessionStore.monthlyProfit(
+            for: monthStart,
+            respectingFilters: sessionStore.hasActiveSessionFilters,
+            settingsDefault: settingsStore.settings.deductExpensesFromProfit
+        )
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(monthYearString(from: monthStart))
@@ -185,7 +189,11 @@ struct CalendarView: View {
                             date: date,
                             isSelected: selectedDate.map { calendar.isDate($0, inSameDayAs: date) } ?? false,
                             isToday: calendar.isDateInToday(date),
-                            dailyProfit: sessionStore.dailyProfit(on: date, respectingFilters: sessionStore.hasActiveSessionFilters),
+                            dailyProfit: sessionStore.dailyProfit(
+                                on: date,
+                                respectingFilters: sessionStore.hasActiveSessionFilters,
+                                settingsDefault: settingsStore.settings.deductExpensesFromProfit
+                            ),
                             isInDisplayMonth: calendar.isDate(date, equalTo: monthStart, toGranularity: .month),
                             settings: settingsStore.settings,
                             winColor: settingsStore.settings.profitLossColorScheme.winColor,

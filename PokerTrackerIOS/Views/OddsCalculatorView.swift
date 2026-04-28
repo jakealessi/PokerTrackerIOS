@@ -2,7 +2,7 @@
 //  OddsCalculatorView.swift
 //  PokerTrackerIOS
 //
-//  Exact-equity odds calculator for NLH and PLO. Up to 6 hands, dead cards.
+//  Exact-equity odds calculator for NLH and PLO. Up to 6 hands, multiple boards, dead cards.
 //  15 free uses total (charged once per hand on flop+), then Premium.
 //
 
@@ -23,10 +23,12 @@ struct OddsCalculatorView: View {
     @State private var gameType: EquityGameType = .nlh
     @State private var numberOfHands = 2
     @State private var hands: [[PlayingCard]] = Array(repeating: [], count: 6)
-    @State private var board: [PlayingCard] = []
+    @State private var numberOfBoards = 1
+    @State private var boards: [[PlayingCard]] = Array(repeating: [], count: 4)
     @State private var deadCards: [PlayingCard] = []
     @State private var selectedSlot: SlotTarget? = .hand(0, 0)
     @State private var result: EquityResult?
+    @State private var boardResults: [BoardEquityResult] = []
     @State private var isCalculating = false
     @State private var errorMessage: String?
     @State private var lastChargedCalculationSignature: String?
@@ -361,17 +363,49 @@ struct OddsCalculatorView: View {
 
     private var boardSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Board")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 4) {
-                ForEach(0..<5, id: \.self) { i in
-                    cardSlot(
-                        card: board.indices.contains(i) ? board[i] : nil,
-                        isSelected: selectedSlot == .board(i),
-                        selectAction: { selectedSlot = .board(i) }
-                    )
+            HStack {
+                Text(numberOfBoards == 1 ? "Board" : "Boards")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if numberOfBoards < boards.count {
+                    Button {
+                        if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                        addBoard()
+                    } label: {
+                        Label("Add Board", systemImage: "plus.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+            }
+            ForEach(0..<numberOfBoards, id: \.self) { boardIndex in
+                HStack(spacing: 4) {
+                    if numberOfBoards > 1 {
+                        Text("Board \(boardIndex + 1)")
+                            .font(.caption)
+                            .frame(width: 56, alignment: .leading)
+                    }
+                    ForEach(0..<5, id: \.self) { cardIndex in
+                        cardSlot(
+                            card: boards[boardIndex].indices.contains(cardIndex) ? boards[boardIndex][cardIndex] : nil,
+                            isSelected: selectedSlot == .board(boardIndex, cardIndex),
+                            selectAction: { selectedSlot = .board(boardIndex, cardIndex) }
+                        )
+                    }
+                    if numberOfBoards > 1, boardIndex == numberOfBoards - 1 {
+                        Button {
+                            if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                            removeLastBoard()
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove Board")
+                    }
                 }
             }
             Text("Dead Cards")
@@ -479,16 +513,38 @@ struct OddsCalculatorView: View {
         return (0..<numberOfHands).filter { hands[$0].count == needed }
     }
 
+    private var activeBoards: [[PlayingCard]] {
+        Array(boards.prefix(numberOfBoards))
+    }
+
+    private var boardsForCalculation: [(index: Int, cards: [PlayingCard])] {
+        let enteredBoards = activeBoards.enumerated().filter { !$0.element.isEmpty }
+        if enteredBoards.isEmpty {
+            return [(0, [])]
+        }
+        return enteredBoards.map { ($0.offset, $0.element) }
+    }
+
     private var hasShareableHand: Bool {
-        hands.contains(where: { !$0.isEmpty }) || !board.isEmpty || !deadCards.isEmpty
+        hands.contains(where: { !$0.isEmpty }) || activeBoards.contains(where: { !$0.isEmpty }) || !deadCards.isEmpty
     }
 
     private var canCalculate: Bool {
         let needed = gameType.cardsPerHand
         let activeHands = hands.filter { $0.count == needed }
         guard activeHands.count >= 2 else { return false }
-        let allCards = hands.flatMap { $0 } + board + deadCards
+        let allCards = hands.flatMap { $0 } + activeBoards.flatMap { $0 } + deadCards
         return Set(allCards).count == allCards.count
+    }
+
+    private var boardValidationMessage: String? {
+        let boardCounts = boardsForCalculation.map { $0.cards.count }
+        if boardCounts.contains(where: { $0 > 0 && $0 < 3 }) {
+            return "Board needs at least 3 cards (complete flop) to calculate."
+        }
+        guard boardCounts.allSatisfy({ $0 == 0 || [3, 4, 5].contains($0) }) else { return nil }
+        guard boardCounts.count > 1, Set(boardCounts).count > 1 else { return nil }
+        return "Multiple boards must be on the same street."
     }
 
     private func resultsSection(_ r: EquityResult) -> some View {
@@ -506,6 +562,32 @@ struct OddsCalculatorView: View {
                     }
                     .font(.subheadline)
                 }
+            }
+            if boardResults.count > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("By board")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(boardResults) { boardResult in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Board \(boardResult.boardIndex + 1): \(handString(boardResult.board))")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(activeHandIndices, id: \.self) { handIdx in
+                                if let resultIdx = activeHandIndices.firstIndex(of: handIdx) {
+                                    HStack {
+                                        Text("Hand \(handIdx + 1)")
+                                        Spacer()
+                                        Text(String(format: "%.1f%% / %.1f%%", boardResult.result.winPercent(forHand: resultIdx), boardResult.result.tiePercent(forHand: resultIdx)))
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 4)
             }
             if !isFromSession {
                 Button {
@@ -536,12 +618,20 @@ struct OddsCalculatorView: View {
 
     enum SlotTarget: Equatable {
         case hand(Int, Int)
-        case board(Int)
+        case board(Int, Int)
         case dead(Int)
         var handIndex: Int? {
             if case .hand(let i, _) = self { return i }
             return nil
         }
+    }
+
+    private struct BoardEquityResult: Identifiable {
+        let boardIndex: Int
+        let board: [PlayingCard]
+        let result: EquityResult
+
+        var id: Int { boardIndex }
     }
 
     // MARK: - Helpers
@@ -571,7 +661,7 @@ struct OddsCalculatorView: View {
     }
 
     private func isCardUsed(_ card: PlayingCard) -> Bool {
-        hands.flatMap { $0 }.contains(card) || board.contains(card) || deadCards.contains(card)
+        hands.flatMap { $0 }.contains(card) || activeBoards.flatMap { $0 }.contains(card) || deadCards.contains(card)
     }
 
     private func handString(_ cards: [PlayingCard]) -> String {
@@ -605,7 +695,7 @@ struct OddsCalculatorView: View {
         return PokerSession.AttachedHand(
             game: gameLabel,
             playerHands: playerHandStrings,
-            board: board.isEmpty ? nil : handString(board),
+            board: boardSummaryText,
             deadCards: deadCards.isEmpty ? nil : handString(deadCards),
             resultSummary: summaries,
             note: (trimmedNote?.isEmpty == false) ? trimmedNote : nil
@@ -619,8 +709,8 @@ struct OddsCalculatorView: View {
             lines.append("Hand \(handIndex + 1): \(handString(hands[handIndex]))")
         }
 
-        if !board.isEmpty {
-            lines.append("Board: \(handString(board))")
+        for (index, board) in activeBoards.enumerated() where !board.isEmpty {
+            lines.append("\(numberOfBoards == 1 ? "Board" : "Board \(index + 1)"): \(handString(board))")
         }
         if !deadCards.isEmpty {
             lines.append("Dead: \(handString(deadCards))")
@@ -647,6 +737,17 @@ struct OddsCalculatorView: View {
         return lines.joined(separator: "\n")
     }
 
+    private var boardSummaryText: String? {
+        let populatedBoards = activeBoards.enumerated().filter { !$0.element.isEmpty }
+        guard !populatedBoards.isEmpty else { return nil }
+        if populatedBoards.count == 1, numberOfBoards == 1 {
+            return handString(populatedBoards[0].element)
+        }
+        return populatedBoards
+            .map { "Board \($0.offset + 1): \(handString($0.element))" }
+            .joined(separator: "\n")
+    }
+
     private func handleAttachSheetDismiss() {
         guard pendingAttachedHandForNewSession != nil else { return }
         showingAddSession = true
@@ -671,14 +772,19 @@ struct OddsCalculatorView: View {
                 hands = updatedHands
                 didPlace = true
             }
-        case .board(let i):
-            if i >= board.count, board.count < 5 {
-                board = board + [card]
+        case .board(let boardIndex, let cardIndex):
+            guard boardIndex < numberOfBoards else { return }
+            if cardIndex >= boards[boardIndex].count, boards[boardIndex].count < 5 {
+                var updatedBoards = boards
+                updatedBoards[boardIndex] = boards[boardIndex] + [card]
+                boards = updatedBoards
                 didPlace = true
-            } else if board.indices.contains(i) {
-                var updated = board
-                updated[i] = card
-                board = updated
+            } else if boards[boardIndex].indices.contains(cardIndex) {
+                var updatedBoards = boards
+                var boardCopy = updatedBoards[boardIndex]
+                boardCopy[cardIndex] = card
+                updatedBoards[boardIndex] = boardCopy
+                boards = updatedBoards
                 didPlace = true
             }
         case .dead(let i):
@@ -711,6 +817,26 @@ struct OddsCalculatorView: View {
         triggerCalculationIfNeeded()
     }
 
+    private func addBoard() {
+        guard numberOfBoards < boards.count else { return }
+        numberOfBoards += 1
+        selectedSlot = .board(numberOfBoards - 1, 0)
+        triggerCalculationIfNeeded()
+    }
+
+    private func removeLastBoard() {
+        guard numberOfBoards > 1 else { return }
+        let idx = numberOfBoards - 1
+        var updated = boards
+        updated[idx] = []
+        boards = updated
+        numberOfBoards -= 1
+        if case .board(let selectedBoardIndex, _) = selectedSlot, selectedBoardIndex >= numberOfBoards {
+            selectedSlot = .board(max(0, numberOfBoards - 1), 0)
+        }
+        triggerCalculationIfNeeded()
+    }
+
     private func removeCard(_ card: PlayingCard) {
         let needed = gameType.cardsPerHand
         for i in 0..<hands.count {
@@ -726,13 +852,17 @@ struct OddsCalculatorView: View {
                 return
             }
         }
-        if let idx = board.firstIndex(of: card) {
-            var updated = board
-            updated.remove(at: idx)
-            board = updated
-            selectedSlot = .board(min(updated.count, 4))
-            triggerCalculationIfNeeded()
-            return
+        for boardIndex in 0..<numberOfBoards {
+            if let idx = boards[boardIndex].firstIndex(of: card) {
+                var updatedBoards = boards
+                var boardCopy = updatedBoards[boardIndex]
+                boardCopy.remove(at: idx)
+                updatedBoards[boardIndex] = boardCopy
+                boards = updatedBoards
+                selectedSlot = .board(boardIndex, min(boardCopy.count, 4))
+                triggerCalculationIfNeeded()
+                return
+            }
         }
         if let idx = deadCards.firstIndex(of: card) {
             var updated = deadCards
@@ -746,22 +876,30 @@ struct OddsCalculatorView: View {
 
     private func triggerCalculationIfNeeded() {
         guard canUse else { return }
-        let boardCount = board.count
-        if [0, 3, 4, 5].contains(boardCount), canCalculate {
+        let calculationBoards = boardsForCalculation
+        let boardCounts = calculationBoards.map { $0.cards.count }
+        if let boardValidationMessage {
+            calculationTask?.cancel()
+            isCalculating = false
+            result = nil
+            boardResults = []
+            errorMessage = boardValidationMessage
+        } else if boardCounts.allSatisfy({ [0, 3, 4, 5].contains($0) }), canCalculate {
             runCalculation()
         } else {
             calculationTask?.cancel()
             isCalculating = false
             result = nil
+            boardResults = []
             errorMessage = nil
             // When board is incomplete, treat next completed solve as a new chargeable hand.
-            if boardCount < 3 {
+            if boardCounts.contains(where: { $0 < 3 }) {
                 lastChargedCalculationSignature = nil
             }
         }
 
         // Full reset if user manually clears all cards.
-        if hands.allSatisfy({ $0.isEmpty }) && board.isEmpty && deadCards.isEmpty {
+        if hands.allSatisfy({ $0.isEmpty }) && activeBoards.allSatisfy({ $0.isEmpty }) && deadCards.isEmpty {
             lastChargedCalculationSignature = nil
         }
     }
@@ -780,16 +918,16 @@ struct OddsCalculatorView: View {
                     selectedSlot = .hand(nextHand, 0)
                 } else {
                     // After last hand, move to the board (never auto-into dead cards)
-                    selectedSlot = .board(0)
+                    selectedSlot = .board(0, 0)
                 }
             }
-        case .board(let boardIndex):
-            let nextBoard = boardIndex + 1
-            if nextBoard < 5 {
-                selectedSlot = .board(nextBoard)
+        case .board(let boardIndex, let cardIndex):
+            let nextCard = cardIndex + 1
+            if nextCard < 5 {
+                selectedSlot = .board(boardIndex, nextCard)
             } else {
-                // Stay on last board slot; do not auto-advance into dead cards
-                selectedSlot = .board(boardIndex)
+                // Stay on last board slot; do not auto-advance into dead cards.
+                selectedSlot = .board(boardIndex, cardIndex)
             }
         case .dead(let deadIndex):
             // If user is in dead cards, advance within dead cards only
@@ -806,9 +944,11 @@ struct OddsCalculatorView: View {
         calculationTask?.cancel()
         numberOfHands = 2
         hands = Array(repeating: [], count: 6)
-        board = []
+        numberOfBoards = 1
+        boards = Array(repeating: [], count: 4)
         deadCards = []
         result = nil
+        boardResults = []
         errorMessage = nil
         isCalculating = false
         lastChargedCalculationSignature = nil
@@ -823,6 +963,7 @@ struct OddsCalculatorView: View {
         isCalculating = true
         errorMessage = nil
         result = nil
+        boardResults = []
 
         let needed = gameType.cardsPerHand
         let activeHands = hands.filter { $0.count == needed }
@@ -833,35 +974,58 @@ struct OddsCalculatorView: View {
         }
 
         let calculationGameType = gameType
-        let calculationBoard = board
+        let calculationBoards = boardsForCalculation
         let cardsFromIncompleteHands = hands.filter { $0.count > 0 && $0.count != needed }.flatMap { $0 }
         let effectiveDeadCards = deadCards + cardsFromIncompleteHands
-        let boardCountAtCalc = board.count
+        let shouldChargeUsage = calculationBoards.contains { $0.cards.count >= 3 }
         let isSubscribed = subscriptionStore.isSubscribed
         let calculationSignature = makeCalculationSignature(
             gameType: calculationGameType,
             hands: activeHands,
-            board: calculationBoard,
+            boards: calculationBoards.map { $0.cards },
             deadCards: effectiveDeadCards
         )
 
         calculationTask?.cancel()
         calculationTask = Task(priority: .userInitiated) {
-            let engine = PokerEquityEngine(
-                gameType: calculationGameType,
-                hands: activeHands,
-                board: calculationBoard,
-                deadCards: effectiveDeadCards
-            )
-            let res = engine.calculate()
+            var perBoardResults: [BoardEquityResult] = []
+            for calculationBoard in calculationBoards {
+                guard !Task.isCancelled else { return }
+                let otherBoardCards = calculationBoards
+                    .filter { $0.index != calculationBoard.index }
+                    .flatMap { $0.cards }
+                let boardSpecificDeadCards = effectiveDeadCards + otherBoardCards
+                let engine = PokerEquityEngine(
+                    gameType: calculationGameType,
+                    hands: activeHands,
+                    board: calculationBoard.cards,
+                    deadCards: boardSpecificDeadCards
+                )
+                guard let boardResult = engine.calculate() else {
+                    await MainActor.run {
+                        isCalculating = false
+                        errorMessage = "Could not calculate. Check for duplicate cards."
+                    }
+                    return
+                }
+                perBoardResults.append(
+                    BoardEquityResult(
+                        boardIndex: calculationBoard.index,
+                        board: calculationBoard.cards,
+                        result: boardResult
+                    )
+                )
+            }
+            let res = aggregateResults(perBoardResults.map { $0.result })
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 isCalculating = false
                 if let r = res {
                     result = r
+                    boardResults = perBoardResults
                     if !isSubscribed,
-                       boardCountAtCalc >= 3,
+                       shouldChargeUsage,
                        lastChargedCalculationSignature != calculationSignature {
                         OddsCalculatorUsage.consumeOne()
                         lastChargedCalculationSignature = calculationSignature
@@ -876,13 +1040,31 @@ struct OddsCalculatorView: View {
     private func makeCalculationSignature(
         gameType: EquityGameType,
         hands: [[PlayingCard]],
-        board: [PlayingCard],
+        boards: [[PlayingCard]],
         deadCards: [PlayingCard]
     ) -> String {
         let handText = hands.map(handString).joined(separator: "|")
-        let boardText = handString(board)
+        let boardText = boards.map(handString).joined(separator: "|")
         let deadText = handString(deadCards)
         return "\(gameType.cardsPerHand)#\(handText)#\(boardText)#\(deadText)"
+    }
+
+    private func aggregateResults(_ results: [EquityResult]) -> EquityResult? {
+        guard let first = results.first else { return nil }
+        var wins = Array(repeating: 0, count: first.wins.count)
+        var ties = Array(repeating: 0.0, count: first.ties.count)
+        var totalRunouts = 0
+
+        for result in results {
+            guard result.wins.count == wins.count, result.ties.count == ties.count else { return nil }
+            totalRunouts += result.totalRunouts
+            for index in wins.indices {
+                wins[index] += result.wins[index]
+                ties[index] += result.ties[index]
+            }
+        }
+
+        return EquityResult(wins: wins, ties: ties, totalRunouts: totalRunouts)
     }
 }
 

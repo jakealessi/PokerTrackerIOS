@@ -437,6 +437,7 @@ struct PokerEquityEngine {
             )
 
             for _ in 0..<chunkSamples {
+                indices = Array(0..<deck.count)
                 for i in 0..<cardsToDeal {
                     let j = i + rng.nextInt(upperBound: deck.count - i)
                     indices.swapAt(i, j)

@@ -204,12 +204,13 @@ struct PokerSession: Identifiable, Codable, Equatable {
 
     /// Effective setting: session override ?? settings default.
     func effectiveDeductExpenses(settingsDefault: Bool) -> Bool {
-        deductExpensesFromProfit ?? settingsDefault
+        guard hasExpenses else { return false }
+        return deductExpensesFromProfit ?? settingsDefault
     }
 
     /// Profit for display: netAmount when deducting expenses, otherwise gross amount.
     func displayProfit(deductExpenses: Bool) -> Double {
-        deductExpenses ? netAmount : amount
+        deductExpenses && hasExpenses ? netAmount : amount
     }
 
     func isWinForDisplay(deductExpenses: Bool) -> Bool {
@@ -241,6 +242,11 @@ struct PokerSession: Identifiable, Codable, Equatable {
     var hourlyRate: Double? {
         guard let hours = hoursPlayed, hours > 0 else { return nil }
         return netAmount / hours
+    }
+
+    func displayHourlyRate(deductExpenses: Bool) -> Double? {
+        guard let hours = hoursPlayed, hours > 0 else { return nil }
+        return displayProfit(deductExpenses: deductExpenses) / hours
     }
     
     var tournamentROI: Double? {

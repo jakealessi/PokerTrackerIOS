@@ -23,69 +23,53 @@ AI poker session logger—type "Won $200 at 1/2 NLH" and it logs instantly. Trac
 ## Description (max 4000 characters)
 
 ```
-Poker Bankroll AI helps you track every session—cash, tournament, sit & go, home game, or online—so you always know where your bankroll stands.
+Poker Bankroll AI helps you track every poker session and manage your bankroll with clear stats, AI-assisted logging, and an integrated odds calculator.
 
-LOG SESSIONS THE EASY WAY
+LOG SESSIONS FAST
 • Type in plain English: "Won $200 at 1/2 NLH" or "Lost $50 at the local casino"
 • Update existing sessions: "Update session #3 stakes to 2/5" or "Add 2 hours to session #1"
-• Add sessions manually with amount, date, stakes, venue, hours played, and notes
-• Attach photos to sessions for hand history or receipts
-• Record tournament details: buy-in, cash out, position, rebuys
+• Add sessions manually with amount, date, game format, variant, stakes, venue, hours, and notes
+• Attach photos for hand history, receipts, or table notes
+• Record tournament details: buy-in, cash out, position, and rebuys
 
-YOUR BANKROLL AT A GLANCE
-• Set a starting bankroll and see your live bankroll (starting + total profit/loss)
-• Win rate, win/loss count, sessions played, and—when you log hours—hourly rate
-• Filter and search by game type, date range, venue, stakes, or notes
-• Calendar view: see which days you played and daily profit
+ODDS CALCULATOR
+• Calculate win/tie equity for No Limit Hold'em and Pot Limit Omaha
+• Enter multiple hands, board cards, and dead cards
+• Attach calculated hands to sessions with optional hand notes
+• Share hand setups and results
+
+BANKROLL & SESSION INSIGHTS
+• Set a starting bankroll and track live bankroll (starting + total P/L)
+• View total profit/loss, sessions played, win rate, win/loss count, and hourly rate (when hours are logged)
+• Filter and search by game type, date range, stakes, venue, and notes
+• Calendar view shows play days and daily profit
+• Share session summaries and attached photos
 
 AI SESSION CRAFTER
-• 20 free uses to try AI-powered session logging—no subscription required
-• Use your own Gemini or OpenAI API key in Settings for more powerful models
-• Premium unlocks unlimited AI uses so you can log and update sessions without ever opening a form
+• 20 free uses to log and update sessions in plain English
+• Use your own Gemini or OpenAI API key in Settings (optional)
+• Premium unlocks unlimited AI usage
 
-ANALYTICS & CHARTS (PREMIUM)
-• Profit over time (cumulative)
+ANALYTICS & CHARTS
+• Cumulative profit over time
+• Drawdown over time
 • Win/loss breakdown
 • Monthly profit
-• Sessions and profit by variant (NLH, PLO, etc.)
+• Weekday performance
+• Sessions and profit by variant
+
+DATA & RECOVERY
+• Export sessions to CSV
+• Backup and restore sessions from JSON
+• Display options: 24-hour time, compact currency, session numbering, and more
 
 PREMIUM SUBSCRIPTION
-• Unlimited AI Session Crafter uses
-• Full access to all stats and charts
-• $4.99/month with a 1-month free trial—cancel anytime
+• Unlimited AI Session Crafter
+• Unlimited Odds Calculator uses
+• Full access to all charts and advanced analytics
+• $4.99/month with a 1-month free trial, cancel anytime
 
-ALWAYS WITH YOU
-• iCloud sync keeps your sessions and settings across your iPhone and iPad (same Apple ID)
-• Export your data to CSV for backup or use in spreadsheets
-• Share individual session summaries via Messages, Mail, or other apps
+Whether you play cash, tournaments, sit & go, home games, or online, Poker Bankroll AI keeps your results organized so you can focus on better decisions at the table.
 
-Whether you play live or online, cash or tournaments, Poker Bankroll AI keeps your numbers straight so you can focus on the game.
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 ```
-
----
-
-## Keywords (max 100 characters, comma-separated, no spaces)
-
-**Apple uses these for search. Don’t include your app name or "Poker Bankroll AI."**
-
-```
-poker,bankroll,tracking,sessions,wins,losses,AI,cash game,tournament,analytics,stats,holdem,PLO
-```
-*Character count: 79*
-
-**Alternative (slightly different focus):**
-```
-poker,tracker,bankroll,sessions,win loss,AI,log,cash,tournament,sit and go,analytics,stats
-```
-
----
-
-## Summary for App Store Connect
-
-| Field | Where to paste |
-|-------|-----------------|
-| **Promotional Text** | App Store Connect → Your App → App Information (or the version page) → Promotional Text |
-| **Description** | App Store Connect → Your App → [Version] → Description |
-| **Keywords** | App Store Connect → Your App → [Version] → Keywords |
-
-Promotional text can be changed anytime. Description and keywords require a new version submission to update.

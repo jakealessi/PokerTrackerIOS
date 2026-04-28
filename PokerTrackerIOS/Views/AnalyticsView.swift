@@ -31,11 +31,14 @@ struct AnalyticsView: View {
         guard let latestSession = sessionStore.filteredSessions.first else {
             return ("0", .secondary)
         }
-        if latestSession.isWin {
-            return ("\(sessionStore.currentWinStreak)W", winColor)
+        let latestProfit = latestSession.displayProfit(
+            deductExpenses: latestSession.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses)
+        )
+        if latestProfit > 0.0001 {
+            return ("\(sessionStore.currentWinStreak(settingsDefault: settingsDefaultDeductExpenses))W", winColor)
         }
-        if latestSession.isLoss {
-            return ("\(sessionStore.currentLossStreak)L", lossColor)
+        if latestProfit < -0.0001 {
+            return ("\(sessionStore.currentLossStreak(settingsDefault: settingsDefaultDeductExpenses))L", lossColor)
         }
         return ("Even", .secondary)
     }
@@ -50,13 +53,13 @@ struct AnalyticsView: View {
                     summaryCards
 
                     if subscriptionStore.isSubscribed {
-                        if sessionStore.profitOverTime.count >= 2 {
+                        if sessionStore.profitOverTimeForDisplay(settingsDefault: settingsDefaultDeductExpenses).count >= 2 {
                             profitLineChart
                         }
                         if sessionStore.totalSessions > 0 {
                             winLossChart
                         }
-                        if sessionStore.monthlyProfit.count >= 2 {
+                        if sessionStore.monthlyProfitForDisplay(settingsDefault: settingsDefaultDeductExpenses).count >= 2 {
                             monthlyBarChart
                         }
                         if sessionStore.totalSessions > 0 {
@@ -65,7 +68,7 @@ struct AnalyticsView: View {
                         if sessionStore.totalSessions > 0 {
                             hourlyRateBreakdownChart
                         }
-                        if sessionStore.drawdownOverTime.count >= 2 {
+                        if sessionStore.drawdownOverTimeForDisplay(settingsDefault: settingsDefaultDeductExpenses).count >= 2 {
                             drawdownChart
                         }
                     } else {
@@ -205,7 +208,7 @@ struct AnalyticsView: View {
         return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
             summaryCard("Net P/L", PokerSession.formatCurrency(total, currency: currency), total >= 0 ? winColor : lossColor)
             summaryCard("Sessions", "\(sessionStore.totalSessions)", AppTheme.accent)
-            summaryCard("Win Rate", String(format: "%.0f%%", sessionStore.winRate), AppTheme.accent)
+            summaryCard("Win Rate", String(format: "%.0f%%", sessionStore.winRate(settingsDefault: settingsDefaultDeductExpenses)), AppTheme.accent)
             summaryCard("Avg Session", PokerSession.formatCurrency(avg, currency: currency), avg >= 0 ? winColor : lossColor)
         }
     }
@@ -230,7 +233,7 @@ struct AnalyticsView: View {
     // MARK: - Profit Over Time Line Chart
     
     private var profitLineChart: some View {
-        let data = sessionStore.profitOverTime
+        let data = sessionStore.profitOverTimeForDisplay(settingsDefault: settingsDefaultDeductExpenses)
         let color: Color = sessionStore.totalProfit(settingsDefault: settingsDefaultDeductExpenses) >= 0 ? winColor : lossColor
         return VStack(alignment: .leading, spacing: 8) {
             Text("Cumulative Net Profit")
@@ -296,16 +299,16 @@ struct AnalyticsView: View {
             
             HStack(spacing: 20) {
                 Chart {
-                    if sessionStore.winCount > 0 {
-                        SectorMark(angle: .value("Wins", sessionStore.winCount), innerRadius: .ratio(0.6))
+                    if sessionStore.winCount(settingsDefault: settingsDefaultDeductExpenses) > 0 {
+                        SectorMark(angle: .value("Wins", sessionStore.winCount(settingsDefault: settingsDefaultDeductExpenses)), innerRadius: .ratio(0.6))
                             .foregroundStyle(winColor)
                     }
-                    if sessionStore.lossCount > 0 {
-                        SectorMark(angle: .value("Losses", sessionStore.lossCount), innerRadius: .ratio(0.6))
+                    if sessionStore.lossCount(settingsDefault: settingsDefaultDeductExpenses) > 0 {
+                        SectorMark(angle: .value("Losses", sessionStore.lossCount(settingsDefault: settingsDefaultDeductExpenses)), innerRadius: .ratio(0.6))
                             .foregroundStyle(lossColor)
                     }
-                    if sessionStore.breakEvenCount > 0 {
-                        SectorMark(angle: .value("Break-even", sessionStore.breakEvenCount), innerRadius: .ratio(0.6))
+                    if sessionStore.breakEvenCount(settingsDefault: settingsDefaultDeductExpenses) > 0 {
+                        SectorMark(angle: .value("Break-even", sessionStore.breakEvenCount(settingsDefault: settingsDefaultDeductExpenses)), innerRadius: .ratio(0.6))
                             .foregroundStyle(breakEvenColor)
                     }
                 }
@@ -314,18 +317,18 @@ struct AnalyticsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Circle().fill(winColor).frame(width: 10, height: 10)
-                        Text("\(sessionStore.winCount) Wins")
+                        Text("\(sessionStore.winCount(settingsDefault: settingsDefaultDeductExpenses)) Wins")
                             .font(.subheadline)
                     }
                     HStack(spacing: 6) {
                         Circle().fill(lossColor).frame(width: 10, height: 10)
-                        Text("\(sessionStore.lossCount) Losses")
+                        Text("\(sessionStore.lossCount(settingsDefault: settingsDefaultDeductExpenses)) Losses")
                             .font(.subheadline)
                     }
-                    if sessionStore.breakEvenCount > 0 {
+                    if sessionStore.breakEvenCount(settingsDefault: settingsDefaultDeductExpenses) > 0 {
                         HStack(spacing: 6) {
                             Circle().fill(breakEvenColor).frame(width: 10, height: 10)
-                            Text("\(sessionStore.breakEvenCount) Break-even")
+                            Text("\(sessionStore.breakEvenCount(settingsDefault: settingsDefaultDeductExpenses)) Break-even")
                                 .font(.subheadline)
                         }
                     }
@@ -353,7 +356,7 @@ struct AnalyticsView: View {
     // MARK: - Drawdown Chart
 
     private var drawdownChart: some View {
-        let data = sessionStore.drawdownOverTime
+        let data = sessionStore.drawdownOverTimeForDisplay(settingsDefault: settingsDefaultDeductExpenses)
         return VStack(alignment: .leading, spacing: 8) {
             Text("Drawdown Over Time")
                 .font(.headline)
@@ -426,7 +429,7 @@ struct AnalyticsView: View {
                 .font(.headline)
             
             Chart {
-                ForEach(sessionStore.monthlyProfitWithDates, id: \.0) { monthDate, profit in
+                ForEach(sessionStore.monthlyProfitWithDatesForDisplay(settingsDefault: settingsDefaultDeductExpenses), id: \.0) { monthDate, profit in
                     BarMark(
                         x: .value("Month", monthDate, unit: .month),
                         y: .value("Profit", profit),
@@ -635,9 +638,10 @@ struct AnalyticsView: View {
     // MARK: - Detail Stats
     
     private var detailStats: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if sessionStore.thisMonthProfit != 0 {
-                detailRow("This Month", PokerSession.formatCurrency(sessionStore.thisMonthProfit, currency: currency), sessionStore.thisMonthProfit >= 0 ? winColor : lossColor)
+        let thisMonthProfit = sessionStore.thisMonthProfitForDisplay(settingsDefault: settingsDefaultDeductExpenses)
+        return VStack(alignment: .leading, spacing: 0) {
+            if thisMonthProfit != 0 {
+                detailRow("This Month", PokerSession.formatCurrency(thisMonthProfit, currency: currency), thisMonthProfit >= 0 ? winColor : lossColor)
                 Divider()
             }
             if sessionStore.totalExpenses > 0 {
@@ -646,14 +650,16 @@ struct AnalyticsView: View {
             }
             if sessionStore.totalHoursPlayed > 0 {
                 detailRow("Total Hours", String(format: "%.1f", sessionStore.totalHoursPlayed), .primary)
-                if settingsStore.settings.showHourlyRate, let rate = sessionStore.hourlyRate {
+                if settingsStore.settings.showHourlyRate,
+                   let rate = sessionStore.hourlyRate(settingsDefault: settingsDefaultDeductExpenses) {
                     Divider()
                     detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: currency) + "/hr", rate >= 0 ? winColor : lossColor)
                 }
                 Divider()
             }
-            if sessionStore.longestWinStreak > 0 {
-                detailRow("Best Streak", "\(sessionStore.longestWinStreak) wins", winColor)
+            let longestWinStreak = sessionStore.longestWinStreak(settingsDefault: settingsDefaultDeductExpenses)
+            if longestWinStreak > 0 {
+                detailRow("Best Streak", "\(longestWinStreak) wins", winColor)
                 Divider()
             }
             detailRow("Current Streak", currentStreakDisplay.value, currentStreakDisplay.color)

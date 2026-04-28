@@ -105,7 +105,8 @@ struct SessionEditorView: View {
     }
 
     private var deductExpenses: Bool {
-        draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit
+        guard parsedExpenseTotal > 0 else { return false }
+        return draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit
     }
     private var netAmountPreview: Double? {
         guard let signedGross = signedAmountForSave else { return nil }
@@ -374,22 +375,22 @@ struct SessionEditorView: View {
                 SessionCurrencyInputRow(label: "Travel", text: $draft.travel)
                 SessionCurrencyInputRow(label: "Fees", text: $draft.fees)
 
-                Toggle("Deduct expenses from profit", isOn: Binding(
-                    get: { draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
-                    set: { draft.deductExpensesFromProfit = $0 }
-                ))
-
                 if parsedExpenseTotal > 0 {
+                    Toggle("Deduct expenses from profit", isOn: Binding(
+                        get: { draft.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
+                        set: { draft.deductExpensesFromProfit = $0 }
+                    ))
+
                     LabeledContent("Total Expenses") {
                         Text(PokerSession.formatCurrency(parsedExpenseTotal, currency: settingsStore.settings.currency))
                             .foregroundStyle(.secondary)
                     }
-                }
 
-                if let netAmountPreview {
-                    LabeledContent(deductExpenses ? "Net Bankroll Change" : "Session Result") {
-                        Text(PokerSession.formatCurrency(netAmountPreview, currency: settingsStore.settings.currency))
-                            .foregroundStyle(netAmountPreview >= 0 ? winColor : lossColor)
+                    if let netAmountPreview {
+                        LabeledContent(deductExpenses ? "Net Bankroll Change" : "Session Result") {
+                            Text(PokerSession.formatCurrency(netAmountPreview, currency: settingsStore.settings.currency))
+                                .foregroundStyle(netAmountPreview >= 0 ? winColor : lossColor)
+                        }
                     }
                 }
             }
@@ -779,6 +780,10 @@ struct SessionEditorView: View {
         let finalFood = parsedExpense(draft.food)
         let finalTravel = parsedExpense(draft.travel)
         let finalFees = parsedExpense(draft.fees)
+        let finalExpenseTotal = [finalRake, finalTips, finalFood, finalTravel, finalFees]
+            .compactMap { $0 }
+            .reduce(0, +)
+        let finalDeductExpensesFromProfit = finalExpenseTotal > 0 ? draft.deductExpensesFromProfit : nil
         let finalBuyIn = isTournamentGame ? parsedUnsignedCurrency(draft.buyIn) : nil
         let finalCashOut = isTournamentGame ? parsedUnsignedCurrency(draft.cashOut) : nil
         let finalTournamentPosition = isTournamentGame ? parsedWholeNumber(draft.tournamentPosition) : nil
@@ -810,7 +815,7 @@ struct SessionEditorView: View {
                 endTime: draft.endTime,
                 imageIds: draft.imageIds,
                 tags: Array(draft.selectedTags).sorted(),
-                deductExpensesFromProfit: draft.deductExpensesFromProfit
+                deductExpensesFromProfit: finalDeductExpensesFromProfit
             )
             sessionStore.addSession(session)
         case .edit(let session):
@@ -838,7 +843,7 @@ struct SessionEditorView: View {
             updated.attachedHands = draft.attachedHands
             updated.imageIds = draft.imageIds
             updated.tags = Array(draft.selectedTags).sorted()
-            updated.deductExpensesFromProfit = draft.deductExpensesFromProfit
+            updated.deductExpensesFromProfit = finalDeductExpensesFromProfit
             sessionStore.updateSession(updated)
         }
 

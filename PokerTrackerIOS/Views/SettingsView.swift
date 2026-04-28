@@ -68,6 +68,73 @@ struct SettingsView: View {
             return "Built-in"
         }
     }
+
+    private var cloudBackupTitle: String {
+        let status = sessionStore.cloudBackupStatus
+        switch status.state {
+        case .synced:
+            if let lastSyncedAt = status.lastSyncedAt {
+                return "Synced \(relativeSyncText(from: lastSyncedAt))"
+            }
+            return "Synced"
+        case .notSignedIn:
+            return "Not signed into iCloud"
+        case .backupTooLarge:
+            return "Backup too large"
+        case .neverSynced:
+            return "Not synced yet"
+        case .syncing:
+            return "Syncing..."
+        case .unavailable:
+            return "iCloud unavailable"
+        }
+    }
+
+    private var cloudBackupDetail: String {
+        let status = sessionStore.cloudBackupStatus
+        switch status.state {
+        case .synced:
+            return "\(sessionStore.sessions.count) session\(sessionStore.sessions.count == 1 ? "" : "s") backed up to iCloud."
+        case .notSignedIn:
+            return "Sign into iCloud on this device to back up and restore sessions after reinstalling."
+        case .backupTooLarge:
+            return "Session data is \(formattedByteCount(status.payloadBytes)); iCloud key-value backups support up to \(formattedByteCount(status.payloadLimitBytes))."
+        case .neverSynced:
+            return "Tap Sync Now to back up your sessions to iCloud."
+        case .syncing:
+            return "Checking iCloud and uploading your latest session data."
+        case .unavailable:
+            return "iCloud backup could not be checked right now."
+        }
+    }
+
+    private var cloudBackupIcon: String {
+        switch sessionStore.cloudBackupStatus.state {
+        case .synced:
+            return "checkmark.icloud.fill"
+        case .notSignedIn:
+            return "icloud.slash"
+        case .backupTooLarge:
+            return "exclamationmark.icloud.fill"
+        case .neverSynced:
+            return "icloud"
+        case .syncing:
+            return "arrow.triangle.2.circlepath.icloud"
+        case .unavailable:
+            return "xmark.icloud"
+        }
+    }
+
+    private var cloudBackupTint: Color {
+        switch sessionStore.cloudBackupStatus.state {
+        case .synced:
+            return .green
+        case .notSignedIn, .backupTooLarge, .unavailable:
+            return .orange
+        case .neverSynced, .syncing:
+            return AppTheme.accent
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -367,12 +434,13 @@ struct SettingsView: View {
 
         Section {
             Toggle("Haptic Feedback", isOn: settingBinding(\.hapticFeedback))
+            Toggle("Privacy Mode", isOn: settingBinding(\.privacyModeEnabled))
             Toggle("Session Reminders", isOn: settingBinding(\.reminderEnabled))
             Toggle("Confirm Before Delete", isOn: settingBinding(\.confirmBeforeDelete))
         } header: {
             Text("Behavior")
         } footer: {
-            Text("Controls how the app responds during daily use.")
+            Text("Privacy Mode requires Face ID or your device passcode when opening the app.")
         }
     }
 
@@ -429,6 +497,33 @@ struct SettingsView: View {
     // MARK: - Data
     private var dataSection: some View {
         Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: cloudBackupIcon)
+                        .font(.title3)
+                        .foregroundStyle(cloudBackupTint)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(cloudBackupTitle)
+                            .font(.subheadline.weight(.semibold))
+                        Text(cloudBackupDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                Button {
+                    if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
+                    sessionStore.syncCloudBackupNow()
+                } label: {
+                    Label("Sync Now", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                .disabled(sessionStore.cloudBackupStatus.state == .syncing)
+            }
+            .padding(.vertical, 4)
+
             Button {
                 if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                 exportData = sessionStore.exportCSV(currency: settingsStore.settings.currency)
@@ -466,7 +561,10 @@ struct SettingsView: View {
         } header: {
             Text("Data")
         } footer: {
-            Text("Restoring replaces your current sessions after confirmation.")
+            Text("iCloud backup covers session records, not attached photos. Restoring from a backup file replaces your current sessions after confirmation.")
+        }
+        .onAppear {
+            sessionStore.refreshCloudBackupStatusForDisplay()
         }
     }
 
@@ -703,6 +801,16 @@ struct SettingsView: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func relativeSyncText(from date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func formattedByteCount(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
     private func updateCurrency(to newCurrency: String) {

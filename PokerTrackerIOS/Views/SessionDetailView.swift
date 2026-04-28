@@ -107,6 +107,9 @@ struct SessionDetailView: View {
     }
     
     private var deductExpenses: Bool { currentSession.effectiveDeductExpenses(settingsDefault: settingsStore.settings.deductExpensesFromProfit) }
+    private var displayHourlyRate: Double? {
+        currentSession.displayHourlyRate(deductExpenses: deductExpenses)
+    }
     private var resultColor: Color {
         let s = currentSession
         if s.isWinForDisplay(deductExpenses: deductExpenses) { return settingsStore.settings.profitLossColorScheme.winColor }
@@ -181,27 +184,27 @@ struct SessionDetailView: View {
             
             // Cash game stats
             if s.gameType == .cash || s.gameType == .plo || s.gameType == .homeGame || s.gameType == .online,
-               s.hoursPlayed != nil || s.hourlyRate != nil {
+               s.hoursPlayed != nil || displayHourlyRate != nil {
                 detailCard(title: "Session") {
                     if let hours = s.hoursPlayed {
                         detailRow("Hours Played", "\(String(format: "%.1f", hours))")
                     }
-                    if settingsStore.settings.showHourlyRate, let rate = s.hourlyRate {
+                    if settingsStore.settings.showHourlyRate, let rate = displayHourlyRate {
                         detailRow("Hourly Rate", PokerSession.formatCurrency(rate, currency: settingsStore.settings.currency) + "/hr")
                     }
                 }
             }
 
-            detailCard(title: "Expenses") {
-                Toggle("Deduct expenses from profit", isOn: Binding(
-                    get: { s.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
-                    set: { newValue in
-                        var updated = currentSession
-                        updated.deductExpensesFromProfit = newValue
-                        sessionStore.updateSession(updated)
-                    }
-                ))
-                if s.hasExpenses {
+            if s.hasExpenses {
+                detailCard(title: "Expenses") {
+                    Toggle("Deduct expenses from profit", isOn: Binding(
+                        get: { s.deductExpensesFromProfit ?? settingsStore.settings.deductExpensesFromProfit },
+                        set: { newValue in
+                            var updated = currentSession
+                            updated.deductExpensesFromProfit = newValue
+                            sessionStore.updateSession(updated)
+                        }
+                    ))
                     detailRow("Gross Result", formattedAmount(s.amount))
                     ForEach(s.expenseEntries, id: \.label) { entry in
                         detailRow(entry.label, formattedUnsignedAmount(entry.amount))

@@ -62,11 +62,28 @@ struct VenueQuickOption: Identifiable, Equatable {
 
 class SessionStore: ObservableObject {
     static let automaticVenueQuickOptionThreshold = 3
+    static let cloudBackupPayloadLimitBytes = 900_000
     private static let supportedCurrencySymbolsForStakes: [String] = Array(Set(SupportedCurrency.all.map(\.symbol)))
         .sorted { lhs, rhs in
             if lhs.count != rhs.count { return lhs.count > rhs.count }
             return lhs > rhs
         }
+
+    enum CloudBackupState: Equatable {
+        case synced
+        case notSignedIn
+        case backupTooLarge
+        case neverSynced
+        case syncing
+        case unavailable
+    }
+
+    struct CloudBackupStatus: Equatable {
+        let state: CloudBackupState
+        let lastSyncedAt: Date?
+        let payloadBytes: Int
+        let payloadLimitBytes: Int
+    }
 
     struct SessionsBackup: Codable {
         let version: Int
@@ -101,11 +118,18 @@ class SessionStore: ObservableObject {
     @Published var filterDateFrom: Date?
     @Published var filterDateTo: Date?
     @Published var searchText: String = ""
+    @Published private(set) var cloudBackupStatus = CloudBackupStatus(
+        state: .neverSynced,
+        lastSyncedAt: nil,
+        payloadBytes: 0,
+        payloadLimitBytes: SessionStore.cloudBackupPayloadLimitBytes
+    )
     
     private let saveKey = "poker_sessions"
     private let saveUpdatedAtKey = "poker_sessions_updated_at"
     private let cloudSaveKey = "icloud_poker_sessions"
     private let cloudSaveUpdatedAtKey = "icloud_poker_sessions_updated_at"
+    private let lastCloudSyncAtKey = "poker_sessions_last_cloud_sync_at"
     private let cloudStore = NSUbiquitousKeyValueStore.default
     private var cloudObserver: NSObjectProtocol?
     private var isApplyingCloudSync = false
@@ -114,6 +138,7 @@ class SessionStore: ObservableObject {
     
     init() {
         loadSessionsLocal()
+        refreshCloudBackupStatus()
         cloudObserver = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: cloudStore,
@@ -125,6 +150,7 @@ class SessionStore: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.cloudStore.synchronize()
             self?.syncFromCloudIfNewer()
+            self?.refreshCloudBackupStatus()
         }
     }
 
@@ -325,21 +351,49 @@ class SessionStore: ObservableObject {
     }
     
     // MARK: - Core Stats
+    private func displayProfit(for session: PokerSession, settingsDefault: Bool) -> Double {
+        session.displayProfit(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsDefault))
+    }
+
+    private func isDisplayWin(_ session: PokerSession, settingsDefault: Bool) -> Bool {
+        displayProfit(for: session, settingsDefault: settingsDefault) > 0.0001
+    }
+
+    private func isDisplayLoss(_ session: PokerSession, settingsDefault: Bool) -> Bool {
+        displayProfit(for: session, settingsDefault: settingsDefault) < -0.0001
+    }
+
+    private func isDisplayBreakEven(_ session: PokerSession, settingsDefault: Bool) -> Bool {
+        abs(displayProfit(for: session, settingsDefault: settingsDefault)) <= 0.0001
+    }
+
     var totalProfit: Double { totalProfit(deductExpenses: true) }
     func totalProfit(deductExpenses: Bool) -> Double {
         totalProfit(settingsDefault: deductExpenses)
     }
     func totalProfit(settingsDefault: Bool) -> Double {
-        filteredSessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+        filteredSessions.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
     }
     var totalExpenses: Double { filteredSessions.reduce(0) { $0 + $1.totalExpenses } }
     var totalSessions: Int { filteredSessions.count }
-    var winCount: Int { filteredSessions.filter { $0.isWin }.count }
-    var lossCount: Int { filteredSessions.filter { $0.isLoss }.count }
-    var breakEvenCount: Int { filteredSessions.filter { $0.isBreakEven }.count }
+    var winCount: Int { winCount(settingsDefault: true) }
+    func winCount(settingsDefault: Bool) -> Int {
+        filteredSessions.filter { isDisplayWin($0, settingsDefault: settingsDefault) }.count
+    }
+    var lossCount: Int { lossCount(settingsDefault: true) }
+    func lossCount(settingsDefault: Bool) -> Int {
+        filteredSessions.filter { isDisplayLoss($0, settingsDefault: settingsDefault) }.count
+    }
+    var breakEvenCount: Int { breakEvenCount(settingsDefault: true) }
+    func breakEvenCount(settingsDefault: Bool) -> Int {
+        filteredSessions.filter { isDisplayBreakEven($0, settingsDefault: settingsDefault) }.count
+    }
     var winRate: Double {
+        winRate(settingsDefault: true)
+    }
+    func winRate(settingsDefault: Bool) -> Double {
         guard totalSessions > 0 else { return 0 }
-        return Double(winCount) / Double(totalSessions) * 100
+        return Double(winCount(settingsDefault: settingsDefault)) / Double(totalSessions) * 100
     }
     
     // MARK: - Advanced Stats
@@ -368,8 +422,8 @@ class SessionStore: ObservableObject {
     }
     func bestSession(settingsDefault: Bool) -> PokerSession? {
         filteredSessions.max(by: {
-            $0.displayProfit(deductExpenses: $0.effectiveDeductExpenses(settingsDefault: settingsDefault)) <
-            $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault))
+            displayProfit(for: $0, settingsDefault: settingsDefault) <
+            displayProfit(for: $1, settingsDefault: settingsDefault)
         })
     }
     var worstSession: PokerSession? { worstSession(deductExpenses: true) }
@@ -378,30 +432,33 @@ class SessionStore: ObservableObject {
     }
     func worstSession(settingsDefault: Bool) -> PokerSession? {
         filteredSessions.min(by: {
-            $0.displayProfit(deductExpenses: $0.effectiveDeductExpenses(settingsDefault: settingsDefault)) <
-            $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault))
+            displayProfit(for: $0, settingsDefault: settingsDefault) <
+            displayProfit(for: $1, settingsDefault: settingsDefault)
         })
     }
     
     // MARK: - Streaks
-    var currentWinStreak: Int {
+    var currentWinStreak: Int { currentWinStreak(settingsDefault: true) }
+    func currentWinStreak(settingsDefault: Bool) -> Int {
         var streak = 0
         for session in filteredSessions {
-            if session.isWin { streak += 1 } else { break }
+            if isDisplayWin(session, settingsDefault: settingsDefault) { streak += 1 } else { break }
         }
         return streak
     }
-    var currentLossStreak: Int {
+    var currentLossStreak: Int { currentLossStreak(settingsDefault: true) }
+    func currentLossStreak(settingsDefault: Bool) -> Int {
         var streak = 0
         for session in filteredSessions {
-            if session.isLoss { streak += 1 } else { break }
+            if isDisplayLoss(session, settingsDefault: settingsDefault) { streak += 1 } else { break }
         }
         return streak
     }
-    var longestWinStreak: Int {
+    var longestWinStreak: Int { longestWinStreak(settingsDefault: true) }
+    func longestWinStreak(settingsDefault: Bool) -> Int {
         var maxStreak = 0, current = 0
         for session in filteredSessions.reversed() {
-            if session.isWin { current += 1; maxStreak = max(maxStreak, current) }
+            if isDisplayWin(session, settingsDefault: settingsDefault) { current += 1; maxStreak = max(maxStreak, current) }
             else { current = 0 }
         }
         return maxStreak
@@ -409,8 +466,11 @@ class SessionStore: ObservableObject {
     
     // MARK: - Chart Data
     var profitOverTime: [(Date, Double)] {
+        profitOverTimeForDisplay(settingsDefault: true)
+    }
+    func profitOverTimeForDisplay(settingsDefault: Bool) -> [(Date, Double)] {
         var running: Double = 0
-        return filteredDailyProfit.map { day, profit in
+        return filteredDailyProfitForDisplay(settingsDefault: settingsDefault).map { day, profit in
             running += profit
             return (day, running)
         }
@@ -418,9 +478,12 @@ class SessionStore: ObservableObject {
 
     /// Peak-to-trough bankroll drawdown over time (0 = at peak, negative = below peak)
     var drawdownOverTime: [(Date, Double)] {
+        drawdownOverTimeForDisplay(settingsDefault: true)
+    }
+    func drawdownOverTimeForDisplay(settingsDefault: Bool) -> [(Date, Double)] {
         var running: Double = 0
         var peak: Double = 0
-        return filteredDailyProfit.map { day, profit in
+        return filteredDailyProfitForDisplay(settingsDefault: settingsDefault).map { day, profit in
             running += profit
             peak = max(peak, running)
             return (day, running - peak)
@@ -443,7 +506,7 @@ class SessionStore: ObservableObject {
 
         return orderedWeekdays.map { weekday in
             let sessions = grouped[weekday] ?? []
-            let total = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+            let total = sessions.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
             let count = sessions.count
             let avg = count > 0 ? total / Double(count) : 0
             let label = (1...7).contains(weekday) ? symbols[weekday - 1] : "?"
@@ -547,24 +610,30 @@ class SessionStore: ObservableObject {
     }
     
     var monthlyProfit: [(String, Double)] {
+        monthlyProfitForDisplay(settingsDefault: true)
+    }
+    func monthlyProfitForDisplay(settingsDefault: Bool) -> [(String, Double)] {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yy"
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: filteredSessions) { session -> Date in
             calendar.date(from: calendar.dateComponents([.year, .month], from: session.date)) ?? session.date
         }
-        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.netAmount }) }
+        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }) }
             .sorted { $0.0 < $1.0 }
             .map { (formatter.string(from: $0.0), $0.1) }
     }
     
     /// Monthly profit with Date for chart domain (month start dates)
     var monthlyProfitWithDates: [(Date, Double)] {
+        monthlyProfitWithDatesForDisplay(settingsDefault: true)
+    }
+    func monthlyProfitWithDatesForDisplay(settingsDefault: Bool) -> [(Date, Double)] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: filteredSessions) { session -> Date in
             calendar.date(from: calendar.dateComponents([.year, .month], from: session.date)) ?? session.date
         }
-        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + $1.netAmount }) }
+        return grouped.map { ($0.key, $0.value.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }) }
             .sorted { $0.0 < $1.0 }
     }
     
@@ -635,11 +704,14 @@ class SessionStore: ObservableObject {
     }
     
     var thisMonthProfit: Double {
+        thisMonthProfitForDisplay(settingsDefault: true)
+    }
+    func thisMonthProfitForDisplay(settingsDefault: Bool) -> Double {
         let calendar = Calendar.current
         let now = Date()
         return filteredSessions
             .filter { calendar.isDate($0.date, equalTo: now, toGranularity: .month) }
-            .reduce(0) { $0 + $1.netAmount }
+            .reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
     }
     
     /// Sessions on a given calendar day.
@@ -650,17 +722,17 @@ class SessionStore: ObservableObject {
     }
     
     /// Total profit for a given calendar day
-    func dailyProfit(on date: Date, respectingFilters: Bool = false) -> Double {
-        sessions(on: date, respectingFilters: respectingFilters).reduce(0) { $0 + $1.netAmount }
+    func dailyProfit(on date: Date, respectingFilters: Bool = false, settingsDefault: Bool = true) -> Double {
+        sessions(on: date, respectingFilters: respectingFilters).reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
     }
     
     /// Total profit for a given month
-    func monthlyProfit(for monthStart: Date, respectingFilters: Bool = false) -> Double {
+    func monthlyProfit(for monthStart: Date, respectingFilters: Bool = false, settingsDefault: Bool = true) -> Double {
         let cal = Calendar.current
         let source = respectingFilters ? filteredSessions : sessions
         return source
             .filter { cal.isDate($0.date, equalTo: monthStart, toGranularity: .month) }
-            .reduce(0) { $0 + $1.netAmount }
+            .reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
     }
     
     // MARK: - Session Numbering (dynamic: earliest = #1, latest = #N)
@@ -717,7 +789,7 @@ class SessionStore: ObservableObject {
     private func groupedProfitBreakdown(settingsDefault: Bool = true, _ labelForSession: (PokerSession) -> String) -> [ProfitBreakdownEntry] {
         Dictionary(grouping: filteredSessions, by: labelForSession)
             .map { label, sessions in
-                let profit = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+                let profit = sessions.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
                 return ProfitBreakdownEntry(
                     label: label,
                     profit: profit,
@@ -753,7 +825,7 @@ class SessionStore: ObservableObject {
         sessions: [PokerSession],
         settingsDefault: Bool = true
     ) -> HourlyRateBreakdownEntry {
-        let totalProfit = sessions.reduce(0) { $0 + $1.displayProfit(deductExpenses: $1.effectiveDeductExpenses(settingsDefault: settingsDefault)) }
+        let totalProfit = sessions.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) }
         let totalHours = sessions.compactMap(\.hoursPlayed).reduce(0, +)
         return HourlyRateBreakdownEntry(
             label: label,
@@ -846,6 +918,24 @@ class SessionStore: ObservableObject {
 
         throw BackupError.invalidFormat
     }
+
+    func syncCloudBackupNow() {
+        updateCloudBackupStatus(state: .syncing)
+        guard isICloudSignedIn else {
+            refreshCloudBackupStatus()
+            return
+        }
+
+        cloudStore.synchronize()
+        if !syncFromCloudIfNewer() {
+            pushCurrentSessionsToCloud()
+        }
+        refreshCloudBackupStatus()
+    }
+
+    func refreshCloudBackupStatusForDisplay() {
+        refreshCloudBackupStatus()
+    }
     
     private func loadSessionsLocal() {
         guard let data = UserDefaults.standard.data(forKey: saveKey),
@@ -865,29 +955,107 @@ class SessionStore: ObservableObject {
 
         guard !isApplyingCloudSync else { return }
 
-        // NSUbiquitousKeyValueStore has tight value limits; skip oversized payloads.
-        guard encoded.count <= 900_000 else { return }
-        cloudStore.set(encoded, forKey: cloudSaveKey)
-        cloudStore.set(updatedAt, forKey: cloudSaveUpdatedAtKey)
-        cloudStore.synchronize()
+        pushSessionsToCloud(encoded: encoded, updatedAt: updatedAt)
+        refreshCloudBackupStatus(encodedSessions: encoded)
     }
 
-    private func syncFromCloudIfNewer() {
+    @discardableResult
+    private func syncFromCloudIfNewer() -> Bool {
         let cloudUpdatedAt = cloudStore.double(forKey: cloudSaveUpdatedAtKey)
         let localUpdatedAt = UserDefaults.standard.double(forKey: saveUpdatedAtKey)
-        guard cloudUpdatedAt > localUpdatedAt else { return }
+        guard cloudUpdatedAt > localUpdatedAt else { return false }
         guard let cloudData = cloudStore.data(forKey: cloudSaveKey),
-              let decoded = decodeSessions(from: cloudData) else { return }
+              let decoded = decodeSessions(from: cloudData) else { return false }
 
         isApplyingCloudSync = true
         cloudSyncUpdatedAt = cloudUpdatedAt
         replaceSessionsWithCleanup(decoded)
         cloudSyncUpdatedAt = nil
         isApplyingCloudSync = false
+        recordSuccessfulCloudSync()
+        refreshCloudBackupStatus(encodedSessions: cloudData)
+        return true
     }
 
     private func decodeSessions(from data: Data) -> [PokerSession]? {
         try? JSONDecoder().decode([PokerSession].self, from: data)
+    }
+
+    private var isICloudSignedIn: Bool {
+        FileManager.default.ubiquityIdentityToken != nil
+    }
+
+    private func pushCurrentSessionsToCloud() {
+        guard let encoded = try? JSONEncoder().encode(sessions) else {
+            refreshCloudBackupStatus()
+            return
+        }
+        let localUpdatedAt = UserDefaults.standard.double(forKey: saveUpdatedAtKey)
+        let updatedAt = localUpdatedAt > 0 ? localUpdatedAt : Date().timeIntervalSince1970
+        pushSessionsToCloud(encoded: encoded, updatedAt: updatedAt)
+    }
+
+    private func pushSessionsToCloud(encoded: Data, updatedAt: TimeInterval) {
+        guard isICloudSignedIn else { return }
+        guard encoded.count <= Self.cloudBackupPayloadLimitBytes else { return }
+
+        cloudStore.set(encoded, forKey: cloudSaveKey)
+        cloudStore.set(updatedAt, forKey: cloudSaveUpdatedAtKey)
+        cloudStore.synchronize()
+        recordSuccessfulCloudSync()
+    }
+
+    private func recordSuccessfulCloudSync() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCloudSyncAtKey)
+    }
+
+    private func refreshCloudBackupStatus(encodedSessions: Data? = nil) {
+        let encoded = encodedSessions ?? (try? JSONEncoder().encode(sessions))
+        let payloadBytes = encoded?.count ?? 0
+        let lastSyncedAt = lastCloudSyncDate()
+
+        if !isICloudSignedIn {
+            cloudBackupStatus = CloudBackupStatus(
+                state: .notSignedIn,
+                lastSyncedAt: lastSyncedAt,
+                payloadBytes: payloadBytes,
+                payloadLimitBytes: Self.cloudBackupPayloadLimitBytes
+            )
+            return
+        }
+
+        if payloadBytes > Self.cloudBackupPayloadLimitBytes {
+            cloudBackupStatus = CloudBackupStatus(
+                state: .backupTooLarge,
+                lastSyncedAt: lastSyncedAt,
+                payloadBytes: payloadBytes,
+                payloadLimitBytes: Self.cloudBackupPayloadLimitBytes
+            )
+            return
+        }
+
+        cloudBackupStatus = CloudBackupStatus(
+            state: lastSyncedAt == nil ? .neverSynced : .synced,
+            lastSyncedAt: lastSyncedAt,
+            payloadBytes: payloadBytes,
+            payloadLimitBytes: Self.cloudBackupPayloadLimitBytes
+        )
+    }
+
+    private func updateCloudBackupStatus(state: CloudBackupState) {
+        let payloadBytes = (try? JSONEncoder().encode(sessions))?.count ?? cloudBackupStatus.payloadBytes
+        cloudBackupStatus = CloudBackupStatus(
+            state: state,
+            lastSyncedAt: cloudBackupStatus.lastSyncedAt,
+            payloadBytes: payloadBytes,
+            payloadLimitBytes: Self.cloudBackupPayloadLimitBytes
+        )
+    }
+
+    private func lastCloudSyncDate() -> Date? {
+        let timestamp = UserDefaults.standard.double(forKey: lastCloudSyncAtKey)
+        guard timestamp > 0 else { return nil }
+        return Date(timeIntervalSince1970: timestamp)
     }
 
     private func replaceSessionsWithCleanup(_ restoredSessions: [PokerSession]) {
@@ -899,12 +1067,15 @@ class SessionStore: ObservableObject {
     }
 
     private var filteredDailyProfit: [(Date, Double)] {
+        filteredDailyProfitForDisplay(settingsDefault: true)
+    }
+    private func filteredDailyProfitForDisplay(settingsDefault: Bool) -> [(Date, Double)] {
         let calendar = Calendar.current
         return Dictionary(grouping: filteredSessions) { session in
             calendar.startOfDay(for: session.date)
         }
         .map { day, sessions in
-            (day, sessions.reduce(0) { $0 + $1.netAmount })
+            (day, sessions.reduce(0) { $0 + displayProfit(for: $1, settingsDefault: settingsDefault) })
         }
         .sorted { $0.0 < $1.0 }
     }

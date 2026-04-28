@@ -47,11 +47,15 @@ struct DashboardView: View {
     }
 
     private var allSessionsWinCount: Int {
-        allSessions.filter(\.isWin).count
+        allSessions.filter { session in
+            session.displayProfit(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses)) > 0.0001
+        }.count
     }
 
     private var allSessionsLossCount: Int {
-        allSessions.filter(\.isLoss).count
+        allSessions.filter { session in
+            session.displayProfit(deductExpenses: session.effectiveDeductExpenses(settingsDefault: settingsDefaultDeductExpenses)) < -0.0001
+        }.count
     }
 
     private var allSessionsWinRate: Double {

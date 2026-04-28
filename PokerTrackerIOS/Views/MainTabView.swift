@@ -5,8 +5,14 @@
 
 import SwiftUI
 
+final class AppRouteController: ObservableObject {
+    @Published var pendingRoute: PokerWidgetRoute?
+}
+
 struct MainTabView: View {
+    @EnvironmentObject var routeController: AppRouteController
     @State private var selectedTab = 1
+    @State private var showingManualSession = false
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -28,6 +34,34 @@ struct MainTabView: View {
         }
         .tint(AppTheme.accent)
         .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea(.all))
+        .sheet(isPresented: $showingManualSession) {
+            AddSessionView()
+                .presentationDetents([.medium, .large])
+        }
+        .onAppear {
+            handleRoute(routeController.pendingRoute)
+        }
+        .onChange(of: routeController.pendingRoute) { _, route in
+            handleRoute(route)
+        }
+    }
+
+    private func handleRoute(_ route: PokerWidgetRoute?) {
+        guard let route else { return }
+
+        switch route {
+        case .odds:
+            selectedTab = 2
+        case .aiLog:
+            selectedTab = 1
+        case .manualLog:
+            selectedTab = 1
+            showingManualSession = true
+        case .calendar:
+            selectedTab = 3
+        }
+
+        routeController.pendingRoute = nil
     }
 }
 
@@ -37,5 +71,6 @@ private struct MainTabView_Previews: PreviewProvider {
             .environmentObject(SessionStore())
             .environmentObject(SettingsStore())
             .environmentObject(SubscriptionStore.shared)
+            .environmentObject(AppRouteController())
     }
 }
