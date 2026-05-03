@@ -36,6 +36,7 @@ struct OddsCalculatorView: View {
     @State private var showingQuickAttachNote = false
     @State private var quickAttachNote = ""
     @State private var calculationTask: Task<Void, Never>?
+    @State private var calculationToken = UUID()
 
     private var isFromSession: Bool { preselectedSessionID != nil }
 
@@ -300,6 +301,7 @@ struct OddsCalculatorView: View {
                 Button {
                     if settingsStore.settings.hapticFeedback { HapticManager.lightTap() }
                     numberOfHands += 1
+                    selectedSlot = .hand(numberOfHands - 1, 0)
                 } label: {
                     Label("Add Hand", systemImage: "plus.circle.fill")
                         .font(.caption)
@@ -513,6 +515,15 @@ struct OddsCalculatorView: View {
         return (0..<numberOfHands).filter { hands[$0].count == needed }
     }
 
+    private var activeHandsForCalculation: [[PlayingCard]] {
+        activeHandIndices.map { hands[$0] }
+    }
+
+    private var hasIncompleteVisibleHand: Bool {
+        let needed = gameType.cardsPerHand
+        return hands.prefix(numberOfHands).contains { !$0.isEmpty && $0.count != needed }
+    }
+
     private var activeBoards: [[PlayingCard]] {
         Array(boards.prefix(numberOfBoards))
     }
@@ -526,14 +537,13 @@ struct OddsCalculatorView: View {
     }
 
     private var hasShareableHand: Bool {
-        hands.contains(where: { !$0.isEmpty }) || activeBoards.contains(where: { !$0.isEmpty }) || !deadCards.isEmpty
+        hands.prefix(numberOfHands).contains(where: { !$0.isEmpty }) || activeBoards.contains(where: { !$0.isEmpty }) || !deadCards.isEmpty
     }
 
     private var canCalculate: Bool {
-        let needed = gameType.cardsPerHand
-        let activeHands = hands.filter { $0.count == needed }
-        guard activeHands.count >= 2 else { return false }
-        let allCards = hands.flatMap { $0 } + activeBoards.flatMap { $0 } + deadCards
+        guard activeHandsForCalculation.count >= 2 else { return false }
+        guard !hasIncompleteVisibleHand else { return false }
+        let allCards = hands.prefix(numberOfHands).flatMap { $0 } + activeBoards.flatMap { $0 } + deadCards
         return Set(allCards).count == allCards.count
     }
 
@@ -661,7 +671,7 @@ struct OddsCalculatorView: View {
     }
 
     private func isCardUsed(_ card: PlayingCard) -> Bool {
-        hands.flatMap { $0 }.contains(card) || activeBoards.flatMap { $0 }.contains(card) || deadCards.contains(card)
+        hands.prefix(numberOfHands).flatMap { $0 }.contains(card) || activeBoards.flatMap { $0 }.contains(card) || deadCards.contains(card)
     }
 
     private func handString(_ cards: [PlayingCard]) -> String {
@@ -839,7 +849,7 @@ struct OddsCalculatorView: View {
 
     private func removeCard(_ card: PlayingCard) {
         let needed = gameType.cardsPerHand
-        for i in 0..<hands.count {
+        for i in 0..<numberOfHands {
             if let idx = hands[i].firstIndex(of: card) {
                 var updatedHands = hands
                 var handCopy = updatedHands[i]
@@ -875,19 +885,33 @@ struct OddsCalculatorView: View {
     }
 
     private func triggerCalculationIfNeeded() {
-        guard canUse else { return }
         let calculationBoards = boardsForCalculation
         let boardCounts = calculationBoards.map { $0.cards.count }
         if let boardValidationMessage {
-            calculationTask?.cancel()
+            cancelCurrentCalculation()
             isCalculating = false
             result = nil
             boardResults = []
             errorMessage = boardValidationMessage
+        } else if hasIncompleteVisibleHand {
+            cancelCurrentCalculation()
+            isCalculating = false
+            result = nil
+            boardResults = []
+            errorMessage = nil
         } else if boardCounts.allSatisfy({ [0, 3, 4, 5].contains($0) }), canCalculate {
-            runCalculation()
+            if canUse {
+                runCalculation()
+            } else {
+                cancelCurrentCalculation()
+                isCalculating = false
+                result = nil
+                boardResults = []
+                errorMessage = nil
+                showingPaywall = true
+            }
         } else {
-            calculationTask?.cancel()
+            cancelCurrentCalculation()
             isCalculating = false
             result = nil
             boardResults = []
@@ -899,9 +923,14 @@ struct OddsCalculatorView: View {
         }
 
         // Full reset if user manually clears all cards.
-        if hands.allSatisfy({ $0.isEmpty }) && activeBoards.allSatisfy({ $0.isEmpty }) && deadCards.isEmpty {
+        if hands.prefix(numberOfHands).allSatisfy({ $0.isEmpty }) && activeBoards.allSatisfy({ $0.isEmpty }) && deadCards.isEmpty {
             lastChargedCalculationSignature = nil
         }
+    }
+
+    private func cancelCurrentCalculation() {
+        calculationTask?.cancel()
+        calculationToken = UUID()
     }
 
     private func advanceSelection(after slot: SlotTarget) {
@@ -941,7 +970,7 @@ struct OddsCalculatorView: View {
     }
 
     private func clearAll() {
-        calculationTask?.cancel()
+        cancelCurrentCalculation()
         numberOfHands = 2
         hands = Array(repeating: [], count: 6)
         numberOfBoards = 1
@@ -960,13 +989,15 @@ struct OddsCalculatorView: View {
             showingPaywall = true
             return
         }
+        guard boardValidationMessage == nil, !hasIncompleteVisibleHand, canCalculate else {
+            return
+        }
         isCalculating = true
         errorMessage = nil
         result = nil
         boardResults = []
 
-        let needed = gameType.cardsPerHand
-        let activeHands = hands.filter { $0.count == needed }
+        let activeHands = activeHandsForCalculation
         guard activeHands.count >= 2 else {
             errorMessage = "Need at least 2 complete hands."
             isCalculating = false
@@ -975,8 +1006,7 @@ struct OddsCalculatorView: View {
 
         let calculationGameType = gameType
         let calculationBoards = boardsForCalculation
-        let cardsFromIncompleteHands = hands.filter { $0.count > 0 && $0.count != needed }.flatMap { $0 }
-        let effectiveDeadCards = deadCards + cardsFromIncompleteHands
+        let effectiveDeadCards = deadCards
         let shouldChargeUsage = calculationBoards.contains { $0.cards.count >= 3 }
         let isSubscribed = subscriptionStore.isSubscribed
         let calculationSignature = makeCalculationSignature(
@@ -987,6 +1017,8 @@ struct OddsCalculatorView: View {
         )
 
         calculationTask?.cancel()
+        let token = UUID()
+        calculationToken = token
         calculationTask = Task(priority: .userInitiated) {
             var perBoardResults: [BoardEquityResult] = []
             for calculationBoard in calculationBoards {
@@ -1003,7 +1035,10 @@ struct OddsCalculatorView: View {
                 )
                 guard let boardResult = engine.calculate() else {
                     await MainActor.run {
+                        guard calculationToken == token, !Task.isCancelled else { return }
                         isCalculating = false
+                        result = nil
+                        boardResults = []
                         errorMessage = "Could not calculate. Check for duplicate cards."
                     }
                     return
@@ -1019,7 +1054,7 @@ struct OddsCalculatorView: View {
             let res = aggregateResults(perBoardResults.map { $0.result })
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard !Task.isCancelled else { return }
+                guard calculationToken == token, !Task.isCancelled else { return }
                 isCalculating = false
                 if let r = res {
                     result = r

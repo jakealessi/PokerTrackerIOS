@@ -53,14 +53,14 @@ struct PokerTrackerIOSApp: App {
             .onAppear {
                 appLock.configure(isEnabled: shouldUsePrivacyLock)
                 refreshWidgets()
-                consumeWidgetRoute()
+                consumeWidgetRouteWithRetry()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { refreshReminder() }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
                     appLock.authenticateIfNeeded(isEnabled: shouldUsePrivacyLock)
-                    consumeWidgetRoute()
+                    consumeWidgetRouteWithRetry()
                 case .background:
                     appLock.lockIfNeeded(isEnabled: shouldUsePrivacyLock)
                 case .inactive:
@@ -77,16 +77,21 @@ struct PokerTrackerIOSApp: App {
             .onChange(of: settingsStore.settings.hasSeenOnboarding) { _, _ in
                 appLock.configure(isEnabled: shouldUsePrivacyLock)
                 refreshWidgets()
+                consumeWidgetRouteWithRetry()
             }
             .onChange(of: settingsStore.settings.currency) { _, _ in refreshWidgets() }
             .onChange(of: settingsStore.settings.startingBankroll) { _, _ in refreshWidgets() }
             .onChange(of: settingsStore.settings.deductExpensesFromProfit) { _, _ in refreshWidgets() }
             .onChange(of: settingsStore.settings.showHourlyRate) { _, _ in refreshWidgets() }
             .onChange(of: settingsStore.settings.useCompactCurrency) { _, _ in refreshWidgets() }
+            .onChange(of: settingsStore.settings.profitLossColorScheme) { _, _ in refreshWidgets() }
             .onChange(of: settingsStore.settings.reminderEnabled) { _, _ in refreshReminder() }
             .onChange(of: sessionStore.dataVersion) { _, _ in
                 refreshReminder()
                 refreshWidgets()
+            }
+            .onOpenURL { url in
+                handleWidgetURL(url)
             }
         }
     }
@@ -114,6 +119,25 @@ struct PokerTrackerIOSApp: App {
         guard settingsStore.settings.hasSeenOnboarding,
               let route = PokerWidgetRouteStore.consumePendingRoute() else { return }
         routeController.pendingRoute = route
+    }
+
+    private func consumeWidgetRouteWithRetry() {
+        consumeWidgetRoute()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            consumeWidgetRoute()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            consumeWidgetRoute()
+        }
+    }
+
+    private func handleWidgetURL(_ url: URL) {
+        guard let route = PokerWidgetDeepLink.route(from: url) else { return }
+        if settingsStore.settings.hasSeenOnboarding {
+            routeController.pendingRoute = route
+        } else {
+            PokerWidgetRouteStore.setPendingRoute(route)
+        }
     }
 }
 

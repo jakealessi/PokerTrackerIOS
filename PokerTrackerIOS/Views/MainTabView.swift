@@ -50,15 +50,24 @@ struct MainTabView: View {
         guard let route else { return }
 
         switch route {
+        case .home:
+            selectedTab = 1
+        case .stats:
+            selectedTab = 0
         case .odds:
             selectedTab = 2
         case .aiLog:
             selectedTab = 1
         case .manualLog:
             selectedTab = 1
-            showingManualSession = true
+            showingManualSession = false
+            DispatchQueue.main.async {
+                showingManualSession = true
+            }
         case .calendar:
             selectedTab = 3
+        case .sessions:
+            selectedTab = 4
         }
 
         routeController.pendingRoute = nil
